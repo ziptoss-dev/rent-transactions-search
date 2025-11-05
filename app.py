@@ -1,0 +1,1459 @@
+from flask import Flask, render_template, request, jsonify
+import psycopg
+from psycopg.rows import dict_row
+import os
+from dotenv import load_dotenv
+import csv
+
+# 환경 변수 로드
+load_dotenv()
+
+app = Flask(__name__)
+
+# DB 연결 설정
+DB_CONFIG = {
+    'host': os.getenv('PG_HOST'),
+    'dbname': os.getenv('PG_DB'),
+    'user': os.getenv('PG_USER'),
+    'password': os.getenv('PG_PASSWORD'),
+    'port': os.getenv('PG_PORT'),
+    'connect_timeout': 30
+}
+
+# 시도명 축약 매핑
+SIDO_ABBR = {
+    '서울특별시': '서울',
+    '부산광역시': '부산',
+    '대구광역시': '대구',
+    '인천광역시': '인천',
+    '광주광역시': '광주',
+    '대전광역시': '대전',
+    '울산광역시': '울산',
+    '세종특별자치시': '세종',
+    '경기도': '경기',
+    '강원도': '강원',
+    '충청북도': '충북',
+    '충청남도': '충남',
+    '전라북도': '전북',
+    '전북특별자치도': '전북',
+    '전라남도': '전남',
+    '경상북도': '경북',
+    '경상남도': '경남',
+    '제주특별자치도': '제주'
+}
+
+# 지역 코드 데이터 로드
+def load_region_codes():
+    """lawd_code.csv 파일에서 지역 코드 로드"""
+    regions = {
+        'sido': {},  # 시도
+        'sigungu': {},  # 시군구
+        'umd': {}  # 읍면동
+    }
+
+    with open('./files/lawd_code.csv', 'r', encoding='utf-8-sig') as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            # 삭제일자가 없는 것만 사용
+            if row['삭제일자']:
+                continue
+
+            code = row['법정동코드']
+            sido_name = row['시도명']
+            sigungu_name = row['시군구명']
+            umd_name = row['읍면동명']
+
+            # 시도 코드 (앞 2자리)
+            sido_code = code[:2]
+            if sido_code + '00000000' == code and sido_name:
+                regions['sido'][sido_code] = sido_name
+
+            # 시군구 코드 (앞 5자리)
+            sgg_code = code[:5]
+            if sgg_code + '00000' == code and sigungu_name:
+                regions['sigungu'][sgg_code] = {
+                    'name': sigungu_name,
+                    'sido': sido_name,
+                    'sido_code': sido_code
+                }
+
+            # 읍면동 코드 (전체 10자리)
+            if umd_name and code[5:] != '00000':
+                ri_name = row['리명']
+                # 체크박스에는 읍면동명만 표시 (리명 제외)
+                display_name = umd_name
+                regions['umd'][code] = {
+                    'name': display_name,
+                    'umd_name': umd_name,
+                    'ri_name': ri_name,
+                    'sigungu': sigungu_name,
+                    'sido': sido_name,
+                    'sgg_code': sgg_code
+                }
+
+    return regions
+
+# 지역 코드 로드
+REGIONS = load_region_codes()
+
+def abbreviate_sido_name(sido_name):
+    """시도명을 2글자로 축약"""
+    abbreviations = {
+        '서울특별시': '서울',
+        '부산광역시': '부산',
+        '대구광역시': '대구',
+        '인천광역시': '인천',
+        '광주광역시': '광주',
+        '대전광역시': '대전',
+        '울산광역시': '울산',
+        '세종특별자치시': '세종',
+        '경기도': '경기',
+        '강원특별자치도': '강원',
+        '충청북도': '충북',
+        '충청남도': '충남',
+        '전북특별자치도': '전북',
+        '전라남도': '전남',
+        '경상북도': '경북',
+        '경상남도': '경남',
+        '제주특별자치도': '제주'
+    }
+    return abbreviations.get(sido_name, sido_name[:2])
+
+def format_money(money_str):
+    """보증금/월세 포맷팅 (쉼표 제거 후 억단위 표시)"""
+    if not money_str or money_str == '':
+        return '0'
+
+    # 이미 포맷팅된 값인지 확인 (억이 포함되어 있으면)
+    if '억' in str(money_str):
+        return str(money_str)
+
+    try:
+        # 쉼표 제거하고 숫자로 변환
+        amount = int(str(money_str).replace(',', ''))
+
+        if amount >= 10000:
+            eok = amount // 10000
+            man = amount % 10000
+            if man == 0:
+                return f'{eok}억'
+            else:
+                return f'{eok}억{man}'
+        else:
+            return str(amount)
+    except ValueError:
+        return str(money_str)
+
+def get_db_connection():
+    """DB 연결 생성"""
+    conn = psycopg.connect(**DB_CONFIG, row_factory=dict_row)
+    return conn
+
+@app.route('/')
+def index():
+    """메인 페이지"""
+    return render_template('index.html')
+
+@app.route('/api/regions/sido')
+def get_sido_list():
+    """시도 목록 조회"""
+    sido_list = [
+        {'code': code, 'name': name}
+        for code, name in sorted(REGIONS['sido'].items())
+    ]
+    return jsonify(sido_list)
+
+@app.route('/api/regions/sigungu/<sido_code>')
+def get_sigungu_list(sido_code):
+    """시군구 목록 조회"""
+    sigungu_list = [
+        {'code': code, 'name': data['name']}
+        for code, data in sorted(REGIONS['sigungu'].items())
+        if data['sido_code'] == sido_code
+    ]
+    return jsonify(sigungu_list)
+
+@app.route('/api/regions/umd/<sgg_code>')
+def get_umd_list(sgg_code):
+    """읍면동 목록 조회 (중복 제거)"""
+    # 읍면동명별로 하나씩만 표시 (중복 제거)
+    umd_dict = {}
+    for code, data in REGIONS['umd'].items():
+        if data['sgg_code'] == sgg_code:
+            umd_name = data['name']  # 이미 읍면동명만 포함
+            if umd_name not in umd_dict:
+                umd_dict[umd_name] = {'code': code, 'name': umd_name}
+
+    # 읍면동명 순으로 정렬
+    umd_list = [umd_dict[name] for name in sorted(umd_dict.keys())]
+    return jsonify(umd_list)
+
+@app.route('/api/transactions', methods=['POST'])
+def get_transactions():
+    """실거래가 조회"""
+    try:
+        filters = request.get_json()
+
+        contract_end = filters.get('contract_end')
+        sido_code = filters.get('sido_code')
+        sgg_codes = filters.get('sgg_codes')
+        umd_codes = filters.get('umd_codes')
+        deposit_min = filters.get('deposit_min')
+        deposit_max = filters.get('deposit_max')
+        monthly_min = filters.get('rent_min')
+        monthly_max = filters.get('rent_max')
+        build_year_min = filters.get('build_year_min')
+        build_year_max = filters.get('build_year_max')
+        include_apt = filters.get('include_apt', True)
+        include_villa = filters.get('include_villa', True)
+        include_dagagu = filters.get('include_dagagu', True)
+        include_officetel = filters.get('include_officetel', True)
+
+        # 페이지네이션 파라미터 추가
+        page = filters.get('page', 1)
+        page_size = filters.get('page_size', 20)  # 기본 20개
+        offset = (page - 1) * page_size
+
+        # 페이지네이션 파라미터 추가
+        page = filters.get('page', 1)
+        page_size = filters.get('page_size', 20)  # 기본 20개
+        offset = (page - 1) * page_size
+
+        all_results = []
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # 아파트 조회
+        if include_apt:
+            apt_query = """
+                SELECT
+                    sggcd,
+                    umdnm,
+                    jibun,
+                    aptnm,
+                    excluusear as 계약면적,
+                    dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
+                    dealday as 계약일,
+                    deposit as 보증금,
+                    monthlyrent as 월세금,
+                    floor as 층,
+                    buildyear as 건축년도,
+                    contracttype as 계약구분,
+                    contractterm as 계약기간,
+                    predeposit as 종전계약보증금,
+                    premonthlyrent as 종전계약월세,
+                    userrright as 갱신요구권사용
+                FROM apt_rent_transactions
+                WHERE 1=1
+            """
+            apt_params = []
+
+            # 계약만기시기 필터
+            if contract_end:
+                # YYYYMM 형식을 YY.MM 형식으로 변환 (예: 202709 -> 27.09)
+                if len(contract_end) == 6:  # YYYYMM 형식
+                    short_format = contract_end[2:4] + '.' + contract_end[4:6]  # 27.09
+                    apt_query += " AND contractterm LIKE %s"
+                    apt_params.append(f'%{short_format}')
+                else:
+                    apt_query += " AND contractterm LIKE %s"
+                    apt_params.append(f'%{contract_end}')
+
+            # 지역 필터
+            if umd_codes and len(umd_codes) > 0:
+                # 읍면동 선택 시 - 선택된 읍면동들의 시군구와 읍면동 패턴으로 필터링
+                sgg_umd_conditions = []
+                for umd_code in umd_codes:
+                    umd_data = REGIONS['umd'].get(umd_code, {})
+                    sgg_code = umd_data.get('sgg_code', '')
+                    umd_name = umd_data.get('umd_name', '')
+                    if sgg_code and umd_name:
+                        # LIKE 패턴으로 해당 읍면동의 모든 리를 포함
+                        sgg_umd_conditions.append(f"(sggcd = %s AND umdnm LIKE %s)")
+                        apt_params.extend([sgg_code, f'{umd_name}%'])
+
+                if sgg_umd_conditions:
+                    apt_query += f" AND ({' OR '.join(sgg_umd_conditions)})"
+            elif sgg_codes and len(sgg_codes) > 0:
+                # 여러 시군구 선택 시
+                placeholders = ','.join(['%s'] * len(sgg_codes))
+                apt_query += f" AND sggcd IN ({placeholders})"
+                apt_params.extend(sgg_codes)
+            elif sido_code:
+                # 시도만 선택했을 때 - 해당 시도의 모든 시군구 포함
+                sido_sgg_codes = [code for code, data in REGIONS['sigungu'].items() if data['sido_code'] == sido_code]
+                if sido_sgg_codes:
+                    placeholders = ','.join(['%s'] * len(sido_sgg_codes))
+                    apt_query += f" AND sggcd IN ({placeholders})"
+                    apt_params.extend(sido_sgg_codes)
+
+            # 보증금 필터
+            if deposit_min is not None:
+                apt_query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) >= %s"
+                apt_params.append(deposit_min)
+            if deposit_max is not None:
+                apt_query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) <= %s"
+                apt_params.append(deposit_max)
+
+            # 월세 필터
+            if monthly_min is not None:
+                apt_query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) >= %s"
+                apt_params.append(monthly_min)
+            if monthly_max is not None:
+                apt_query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) <= %s"
+                apt_params.append(monthly_max)
+
+            # 건축년도 필터
+            if build_year_min is not None:
+                apt_query += " AND CAST(buildyear AS INTEGER) >= %s"
+                apt_params.append(build_year_min)
+            if build_year_max is not None:
+                apt_query += " AND CAST(buildyear AS INTEGER) <= %s"
+                apt_params.append(build_year_max)
+
+            apt_query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
+            apt_params.extend([page_size, offset])
+
+            cursor.execute(apt_query, apt_params)
+            apt_results = cursor.fetchall()
+            for result in apt_results:
+                result['source_type'] = 'apt'
+            all_results.extend(apt_results)
+
+        # 연립다세대 조회
+        if include_villa:
+            villa_query = """
+                SELECT
+                    sggcd,
+                    umdnm,
+                    jibun,
+                    mhousename as aptnm,
+                    excluusear as 계약면적,
+                    dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
+                    dealday as 계약일,
+                    deposit as 보증금,
+                    monthlyrent as 월세금,
+                    floor as 층,
+                    buildyear as 건축년도,
+                    contracttype as 계약구분,
+                    contractterm as 계약기간,
+                    predeposit as 종전계약보증금,
+                    premonthlyrent as 종전계약월세,
+                    userrright as 갱신요구권사용
+                FROM villa_rent_transactions
+                WHERE 1=1
+            """
+            villa_params = []
+
+            # 계약만기시기 필터
+            if contract_end:
+                if len(contract_end) == 6:  # YYYYMM 형식
+                    short_format = contract_end[2:4] + '.' + contract_end[4:6]  # 27.09
+                    villa_query += " AND contractterm LIKE %s"
+                    villa_params.append(f'%{short_format}')
+                else:
+                    villa_query += " AND contractterm LIKE %s"
+                    villa_params.append(f'%{contract_end}')
+
+            # 지역 필터
+            if umd_codes and len(umd_codes) > 0:
+                # 읍면동 선택 시 - 선택된 읍면동들의 시군구와 읍면동 패턴으로 필터링
+                sgg_umd_conditions = []
+                for umd_code in umd_codes:
+                    umd_data = REGIONS['umd'].get(umd_code, {})
+                    sgg_code = umd_data.get('sgg_code', '')
+                    umd_name = umd_data.get('umd_name', '')
+                    if sgg_code and umd_name:
+                        # LIKE 패턴으로 해당 읍면동의 모든 리를 포함
+                        sgg_umd_conditions.append(f"(sggcd = %s AND umdnm LIKE %s)")
+                        villa_params.extend([sgg_code, f'{umd_name}%'])
+
+                if sgg_umd_conditions:
+                    villa_query += f" AND ({' OR '.join(sgg_umd_conditions)})"
+            elif sgg_codes and len(sgg_codes) > 0:
+                # 여러 시군구 선택 시
+                placeholders = ','.join(['%s'] * len(sgg_codes))
+                villa_query += f" AND sggcd IN ({placeholders})"
+                villa_params.extend(sgg_codes)
+            elif sido_code:
+                # 시도만 선택했을 때 - 해당 시도의 모든 시군구 포함
+                sido_sgg_codes = [code for code, data in REGIONS['sigungu'].items() if data['sido_code'] == sido_code]
+                if sido_sgg_codes:
+                    placeholders = ','.join(['%s'] * len(sido_sgg_codes))
+                    villa_query += f" AND sggcd IN ({placeholders})"
+                    villa_params.extend(sido_sgg_codes)
+
+            # 보증금 필터
+            if deposit_min is not None:
+                villa_query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) >= %s"
+                villa_params.append(deposit_min)
+            if deposit_max is not None:
+                villa_query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) <= %s"
+                villa_params.append(deposit_max)
+
+            # 월세 필터
+            if monthly_min is not None:
+                villa_query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) >= %s"
+                villa_params.append(monthly_min)
+            if monthly_max is not None:
+                villa_query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) <= %s"
+                villa_params.append(monthly_max)
+
+            # 건축년도 필터
+            if build_year_min is not None:
+                villa_query += " AND CAST(buildyear AS INTEGER) >= %s"
+                villa_params.append(build_year_min)
+            if build_year_max is not None:
+                villa_query += " AND CAST(buildyear AS INTEGER) <= %s"
+                villa_params.append(build_year_max)
+
+            villa_query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
+            villa_params.extend([page_size, offset])
+
+            cursor.execute(villa_query, villa_params)
+            villa_results = cursor.fetchall()
+            for result in villa_results:
+                result['source_type'] = 'villa'
+            all_results.extend(villa_results)
+
+        # 단독다가구 조회
+        if include_dagagu:
+            dagagu_query = """
+                SELECT
+                    sggcd,
+                    umdnm,
+                    jibun,
+                    NULL as aptnm,
+                    계약면적,
+                    계약년월,
+                    계약일,
+                    보증금,
+                    월세금,
+                    NULL as 층,
+                    건축년도,
+                    계약구분,
+                    계약기간,
+                    종전계약보증금,
+                    종전계약월세,
+                    갱신요구권사용
+                FROM dagagu_rent_transactions
+                WHERE 1=1
+            """
+            dagagu_params = []
+
+            # 계약만기시기 필터 (단독다가구는 YYYYMM 형식 사용)
+            if contract_end:
+                if len(contract_end) == 6:  # YYYYMM 형식
+                    # 단독다가구는 YYYYMM 형식을 그대로 사용
+                    dagagu_query += " AND 계약기간 LIKE %s"
+                    dagagu_params.append(f'%{contract_end}%')
+                else:
+                    dagagu_query += " AND 계약기간 LIKE %s"
+                    dagagu_params.append(f'%{contract_end}%')
+
+            # 지역 필터
+            if umd_codes and len(umd_codes) > 0:
+                # 읍면동 선택 시 - 선택된 읍면동들의 시군구와 읍면동 패턴으로 필터링
+                sgg_umd_conditions = []
+                for umd_code in umd_codes:
+                    umd_data = REGIONS['umd'].get(umd_code, {})
+                    sgg_code = umd_data.get('sgg_code', '')
+                    umd_name = umd_data.get('umd_name', '')
+                    if sgg_code and umd_name:
+                        # LIKE 패턴으로 해당 읍면동의 모든 리를 포함
+                        sgg_umd_conditions.append(f"(sggcd = %s AND umdnm LIKE %s)")
+                        dagagu_params.extend([sgg_code, f'{umd_name}%'])
+
+                if sgg_umd_conditions:
+                    dagagu_query += f" AND ({' OR '.join(sgg_umd_conditions)})"
+            elif sgg_codes and len(sgg_codes) > 0:
+                # 여러 시군구 선택 시
+                placeholders = ','.join(['%s'] * len(sgg_codes))
+                dagagu_query += f" AND sggcd IN ({placeholders})"
+                dagagu_params.extend(sgg_codes)
+            elif sido_code:
+                # 시도만 선택했을 때 - 해당 시도의 모든 시군구 포함
+                sido_sgg_codes = [code for code, data in REGIONS['sigungu'].items() if data['sido_code'] == sido_code]
+                if sido_sgg_codes:
+                    placeholders = ','.join(['%s'] * len(sido_sgg_codes))
+                    dagagu_query += f" AND sggcd IN ({placeholders})"
+                    dagagu_params.extend(sido_sgg_codes)
+
+            # 보증금 필터
+            if deposit_min is not None:
+                dagagu_query += " AND CAST(REPLACE(보증금, ',', '') AS INTEGER) >= %s"
+                dagagu_params.append(deposit_min)
+            if deposit_max is not None:
+                dagagu_query += " AND CAST(REPLACE(보증금, ',', '') AS INTEGER) <= %s"
+                dagagu_params.append(deposit_max)
+
+            # 월세 필터
+            if monthly_min is not None:
+                dagagu_query += " AND CAST(REPLACE(월세금, ',', '') AS INTEGER) >= %s"
+                dagagu_params.append(monthly_min)
+            if monthly_max is not None:
+                dagagu_query += " AND CAST(REPLACE(월세금, ',', '') AS INTEGER) <= %s"
+                dagagu_params.append(monthly_max)
+
+            # 건축년도 필터
+            if build_year_min is not None:
+                dagagu_query += " AND CAST(건축년도 AS INTEGER) >= %s"
+                dagagu_params.append(build_year_min)
+            if build_year_max is not None:
+                dagagu_query += " AND CAST(건축년도 AS INTEGER) <= %s"
+                dagagu_params.append(build_year_max)
+
+            dagagu_query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
+            dagagu_params.extend([page_size, offset])
+
+            print(f"=== 단독다가구 쿼리 디버깅 ===")
+            print(f"dagagu_query: {dagagu_query}")
+            print(f"dagagu_params: {dagagu_params}")
+
+            cursor.execute(dagagu_query, dagagu_params)
+            dagagu_results = cursor.fetchall()
+            print(f"단독다가구 결과 개수: {len(dagagu_results)}")
+
+            for result in dagagu_results:
+                result['source_type'] = 'dagagu'
+            all_results.extend(dagagu_results)
+
+        # 오피스텔 조회
+        if include_officetel:
+            officetel_query = """
+                SELECT
+                    sggcd,
+                    umdnm,
+                    jibun,
+                    offinm as aptnm,
+                    excluusear as 계약면적,
+                    dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
+                    dealday as 계약일,
+                    deposit as 보증금,
+                    monthlyrent as 월세금,
+                    floor as 층,
+                    buildyear as 건축년도,
+                    contracttype as 계약구분,
+                    contractterm as 계약기간,
+                    predeposit as 종전계약보증금,
+                    premonthlyrent as 종전계약월세,
+                    userrright as 갱신요구권사용
+                FROM officetel_rent_transactions
+                WHERE 1=1
+            """
+            officetel_params = []
+
+            # 계약만기시기 필터
+            if contract_end:
+                if len(contract_end) == 6:  # YYYYMM 형식
+                    short_format = contract_end[2:4] + '.' + contract_end[4:6]  # 27.09
+                    officetel_query += " AND contractterm LIKE %s"
+                    officetel_params.append(f'%{short_format}')
+                else:
+                    officetel_query += " AND contractterm LIKE %s"
+                    officetel_params.append(f'%{contract_end}')
+
+            # 지역 필터 (단순한 IN 절 사용 - 빠름)
+            if umd_codes and len(umd_codes) > 0:
+                # 읍면동 선택 시 - 시군구 + 읍면동 조합으로 정확한 필터링
+                sgg_umd_conditions = []
+                for umd_code in umd_codes:
+                    umd_data = REGIONS['umd'].get(umd_code, {})
+                    sgg_code = umd_data.get('sgg_code', '')
+                    umd_name = umd_data.get('umd_name', '')
+                    if sgg_code and umd_name:
+                        # LIKE 패턴으로 해당 읍면동의 모든 리를 포함
+                        sgg_umd_conditions.append(f"(sggcd = %s AND umdnm LIKE %s)")
+                        officetel_params.extend([sgg_code, f'{umd_name}%'])
+
+                if sgg_umd_conditions:
+                    officetel_query += f" AND ({' OR '.join(sgg_umd_conditions)})"
+            elif sgg_codes and len(sgg_codes) > 0:
+                # 여러 시군구 선택 시
+                placeholders = ','.join(['%s'] * len(sgg_codes))
+                officetel_query += f" AND sggcd IN ({placeholders})"
+                officetel_params.extend(sgg_codes)
+            elif sido_code:
+                # 시도만 선택했을 때 - 해당 시도의 모든 시군구 포함
+                sido_sgg_codes = [code for code, data in REGIONS['sigungu'].items() if data['sido_code'] == sido_code]
+                if sido_sgg_codes:
+                    placeholders = ','.join(['%s'] * len(sido_sgg_codes))
+                    officetel_query += f" AND sggcd IN ({placeholders})"
+                    officetel_params.extend(sido_sgg_codes)
+
+            # 보증금 필터
+            if deposit_min is not None:
+                officetel_query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) >= %s"
+                officetel_params.append(deposit_min)
+            if deposit_max is not None:
+                officetel_query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) <= %s"
+                officetel_params.append(deposit_max)
+
+            # 월세 필터
+            if monthly_min is not None:
+                officetel_query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) >= %s"
+                officetel_params.append(monthly_min)
+            if monthly_max is not None:
+                officetel_query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) <= %s"
+                officetel_params.append(monthly_max)
+
+            # 건축년도 필터
+            if build_year_min is not None:
+                officetel_query += " AND CAST(buildyear AS INTEGER) >= %s"
+                officetel_params.append(build_year_min)
+            if build_year_max is not None:
+                officetel_query += " AND CAST(buildyear AS INTEGER) <= %s"
+                officetel_params.append(build_year_max)
+
+            officetel_query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
+            officetel_params.extend([page_size, offset])
+
+            cursor.execute(officetel_query, officetel_params)
+            officetel_results = cursor.fetchall()
+            for result in officetel_results:
+                result['source_type'] = 'officetel'
+            all_results.extend(officetel_results)
+
+        cursor.close()
+        conn.close()
+
+        # 지역명 추가 및 데이터 포맷팅
+        for row in all_results:
+            sggcd = row['sggcd']
+            if sggcd in REGIONS['sigungu']:
+                sido_full = REGIONS['sigungu'][sggcd]['sido']
+                row['시도명'] = abbreviate_sido_name(sido_full)
+                row['시군구명'] = REGIONS['sigungu'][sggcd]['name']
+
+            # 읍면동리명 - DB의 umdnm이 이미 리까지 포함되어 있음
+            row['읍면동리'] = row.get('umdnm', '')
+
+            # 아파트의 경우 아파트명을 mhousename 필드에도 추가
+            if 'aptnm' in row and row['aptnm']:
+                row['mhousename'] = row['aptnm']
+
+            # 보증금 포맷팅 (쉼표 제거 후 숫자로 변환, 억단위 처리)
+            if '보증금' in row and row['보증금']:
+                row['보증금'] = format_money(row['보증금'])
+
+            # 월세금 포맷팅
+            if '월세금' in row and row['월세금']:
+                row['월세금'] = format_money(row['월세금'])
+
+            # 종전계약보증금 포맷팅
+            if '종전계약보증금' in row and row['종전계약보증금']:
+                row['종전계약보증금'] = format_money(row['종전계약보증금'])
+
+            # 종전계약월세 포맷팅
+            if '종전계약월세' in row and row['종전계약월세']:
+                row['종전계약월세'] = format_money(row['종전계약월세'])
+
+        # 최신순 정렬
+        all_results.sort(key=lambda x: (x.get('계약년월', ''), x.get('계약일', '')), reverse=True)
+
+
+
+        return jsonify({
+            'success': True,
+            'data': all_results,
+            'count': len(all_results),
+            'page': page,
+            'page_size': page_size,
+            'has_more': len(all_results) == page_size * len([t for t in [include_apt, include_villa, include_dagagu, include_officetel] if t])
+        })
+
+    except Exception as e:
+        print(f"조회 오류: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'조회 중 오류가 발생했습니다: {str(e)}'
+        })
+
+
+
+@app.route('/api/building/<building_name>', methods=['GET'])
+def get_building_transactions(building_name):
+    """특정 건물의 모든 실거래가 조회"""
+    try:
+        sgg_code = request.args.get('sgg_code')
+        umd_name = request.args.get('umd_name')
+
+        if not sgg_code or not umd_name:
+            return jsonify({
+                'success': False,
+                'error': '시군구 코드와 읍면동명이 필요합니다.'
+            })
+
+        all_results = []
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # 아파트 조회
+        apt_query = """
+            SELECT
+                sggcd,
+                umdnm,
+                jibun,
+                aptnm,
+                excluusear as 계약면적,
+                dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
+                dealday as 계약일,
+                deposit as 보증금,
+                monthlyrent as 월세금,
+                floor as 층,
+                buildyear as 건축년도,
+                contracttype as 계약구분,
+                contractterm as 계약기간,
+                predeposit as 종전계약보증금,
+                premonthlyrent as 종전계약월세,
+                userrright as 갱신요구권사용
+            FROM apt_rent_transactions
+            WHERE sggcd = %s AND umdnm = %s AND aptnm = %s
+            ORDER BY 계약년월 DESC, 계약일 DESC
+        """
+
+        cursor.execute(apt_query, [sgg_code, umd_name, building_name])
+        apt_results = cursor.fetchall()
+        for result in apt_results:
+            result['source_type'] = 'apt'
+        all_results.extend(apt_results)
+
+        # 연립다세대 조회
+        villa_query = """
+            SELECT
+                sggcd,
+                umdnm,
+                jibun,
+                mhousename as aptnm,
+                excluusear as 계약면적,
+                dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
+                dealday as 계약일,
+                deposit as 보증금,
+                monthlyrent as 월세금,
+                floor as 층,
+                buildyear as 건축년도,
+                contracttype as 계약구분,
+                contractterm as 계약기간,
+                predeposit as 종전계약보증금,
+                premonthlyrent as 종전계약월세,
+                userrright as 갱신요구권사용
+            FROM villa_rent_transactions
+            WHERE sggcd = %s AND umdnm = %s AND mhousename = %s
+            ORDER BY 계약년월 DESC, 계약일 DESC
+        """
+
+        cursor.execute(villa_query, [sgg_code, umd_name, building_name])
+        villa_results = cursor.fetchall()
+        for result in villa_results:
+            result['source_type'] = 'villa'
+        all_results.extend(villa_results)
+
+        # 오피스텔 조회
+        officetel_query = """
+            SELECT
+                sggcd,
+                umdnm,
+                jibun,
+                offinm as aptnm,
+                excluusear as 계약면적,
+                dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
+                dealday as 계약일,
+                deposit as 보증금,
+                monthlyrent as 월세금,
+                floor as 층,
+                buildyear as 건축년도,
+                contracttype as 계약구분,
+                contractterm as 계약기간,
+                predeposit as 종전계약보증금,
+                premonthlyrent as 종전계약월세,
+                userrright as 갱신요구권사용
+            FROM officetel_rent_transactions
+            WHERE sggcd = %s AND umdnm = %s AND offinm = %s
+            ORDER BY 계약년월 DESC, 계약일 DESC
+        """
+
+        cursor.execute(officetel_query, [sgg_code, umd_name, building_name])
+        officetel_results = cursor.fetchall()
+        for result in officetel_results:
+            result['source_type'] = 'officetel'
+        all_results.extend(officetel_results)
+
+        cursor.close()
+        conn.close()
+
+        # 지역명 추가 및 데이터 포맷팅
+        for row in all_results:
+            sggcd = row['sggcd']
+            if sggcd in REGIONS['sigungu']:
+                sido_full = REGIONS['sigungu'][sggcd]['sido']
+                row['시도명'] = abbreviate_sido_name(sido_full)
+                row['시군구명'] = REGIONS['sigungu'][sggcd]['name']
+
+            row['읍면동리'] = row.get('umdnm', '')
+
+            # 보증금 포맷팅
+            if '보증금' in row and row['보증금']:
+                row['보증금'] = format_money(row['보증금'])
+
+            # 월세금 포맷팅
+            if '월세금' in row and row['월세금']:
+                row['월세금'] = format_money(row['월세금'])
+
+            # 종전계약보증금 포맷팅
+            if '종전계약보증금' in row and row['종전계약보증금']:
+                row['종전계약보증금'] = format_money(row['종전계약보증금'])
+
+            # 종전계약월세 포맷팅
+            if '종전계약월세' in row and row['종전계약월세']:
+                row['종전계약월세'] = format_money(row['종전계약월세'])
+
+        # 최신순 정렬
+        all_results.sort(key=lambda x: (x.get('계약년월', ''), x.get('계약일', '')), reverse=True)
+
+        return jsonify({
+            'success': True,
+            'data': all_results,
+            'count': len(all_results),
+            'building_name': building_name
+        })
+
+    except Exception as e:
+        print(f"건물 조회 오류: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'건물 조회 중 오류가 발생했습니다: {str(e)}'
+        })
+
+
+# 지역 API 엔드포인트들
+@app.route('/api/locations/sido')
+def api_sido():
+    """시도 목록 API"""
+    try:
+        # lawd_code.csv에서 시도 목록 가져오기
+        sidos = set()
+
+        try:
+            with open('./files/lawd_code.csv', 'r', encoding='utf-8-sig') as f:
+                csv_reader = csv.DictReader(f)
+                for row in csv_reader:
+                    if row.get('시도명') and not row.get('삭제일자'):
+                        sidos.add(row['시도명'])
+        except FileNotFoundError:
+            # 기본 시도 목록
+            sidos = {'서울특별시', '부산광역시', '대구광역시', '인천광역시', '광주광역시',
+                    '대전광역시', '울산광역시', '세종특별자치시', '경기도', '강원도',
+                    '충청북도', '충청남도', '전라북도', '전라남도', '경상북도',
+                    '경상남도', '제주특별자치도'}
+
+        return jsonify({
+            'success': True,
+            'sidos': sorted(list(sidos))
+        })
+
+    except Exception as e:
+        print(f"시도 목록 조회 오류: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'시도 목록 조회 중 오류가 발생했습니다: {str(e)}'
+        })
+
+@app.route('/api/locations/sigungu')
+def api_sigungu():
+    """시군구 목록 API"""
+    try:
+        sido = request.args.get('sido')
+        print(f"[DEBUG] 요청된 시도: {sido}")
+
+        if not sido:
+            return jsonify({
+                'success': False,
+                'error': '시도가 선택되지 않았습니다.'
+            })
+
+        sigungus = set()
+        row_count = 0
+
+        try:
+            with open('./files/lawd_code.csv', 'r', encoding='utf-8-sig') as f:
+                csv_reader = csv.DictReader(f)
+                for row in csv_reader:
+                    row_count += 1
+                    if row.get('시도명') == sido and row.get('시군구명') and not row.get('삭제일자'):
+                        sigungus.add(row['시군구명'])
+
+            print(f"[DEBUG] 읽은 행 수: {row_count}")
+            print(f"[DEBUG] 찾은 시군구 수: {len(sigungus)}")
+            print(f"[DEBUG] 시군구 목록: {list(sigungus)[:5]}")  # 처음 5개만
+        except FileNotFoundError as e:
+            print(f"[ERROR] 파일을 찾을 수 없음: {e}")
+            # 기본 시군구 목록 (서울 예시)
+            if sido == '서울특별시':
+                sigungus = {'강남구', '강동구', '강북구', '강서구', '관악구', '광진구',
+                          '구로구', '금천구', '노원구', '도봉구', '동대문구', '동작구',
+                          '마포구', '서대문구', '서초구', '성동구', '성북구', '송파구',
+                          '양천구', '영등포구', '용산구', '은평구', '종로구', '중구', '중랑구'}
+
+        return jsonify({
+            'success': True,
+            'sigungus': sorted(list(sigungus))
+        })
+
+    except Exception as e:
+        print(f"시군구 목록 조회 오류: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'시군구 목록 조회 중 오류가 발생했습니다: {str(e)}'
+        })
+
+@app.route('/api/locations/umd')
+def api_umd():
+    """읍면동 목록 API"""
+    try:
+        sido = request.args.get('sido')
+        sigungus = request.args.getlist('sigungu')
+
+        if not sido or not sigungus:
+            return jsonify({
+                'success': False,
+                'error': '시도 또는 시군구가 선택되지 않았습니다.'
+            })
+
+        umds = {}
+
+        try:
+            with open('./files/lawd_code.csv', 'r', encoding='utf-8-sig') as f:
+                csv_reader = csv.DictReader(f)
+                for row in csv_reader:
+                    if (row.get('시도명') == sido and
+                        row.get('시군구명') in sigungus and
+                        row.get('읍면동명') and
+                        not row.get('삭제일자')):
+                        sigungu = row['시군구명']
+                        if sigungu not in umds:
+                            umds[sigungu] = set()
+                        umds[sigungu].add(row['읍면동명'])
+        except FileNotFoundError as e:
+            print(f"CSV 파일을 찾을 수 없습니다: {e}")
+            return jsonify({
+                'success': False,
+                'error': 'CSV 파일을 찾을 수 없습니다.'
+            })
+
+        # set을 list로 변환하고 정렬
+        result = {}
+        for sigungu, umd_set in umds.items():
+            result[sigungu] = sorted(list(umd_set))
+
+        return jsonify({
+            'success': True,
+            'umds': result
+        })
+
+    except Exception as e:
+        print(f"읍면동 목록 조회 오류: {str(e)}")
+        return jsonify({
+            'success': False,
+            'error': f'읍면동 목록 조회 중 오류가 발생했습니다: {str(e)}'
+        })
+
+
+@app.route('/api/search', methods=['POST'])
+def api_search():
+    """실거래가 검색 API (이름 기반)"""
+    try:
+        # JSON 파싱 시 인코딩 에러 처리
+        try:
+            filters = request.get_json(force=True)
+        except:
+            # 인코딩 에러 시 request.data를 직접 디코딩
+            import json
+            filters = json.loads(request.data.decode('utf-8', errors='ignore'))
+        print(f"[DEBUG] 받은 필터: {filters}")
+
+        # 필터 파라미터
+        include_apt = filters.get('include_apt', True)
+        include_villa = filters.get('include_villa', True)
+        include_dagagu = filters.get('include_dagagu', True)
+        include_officetel = filters.get('include_officetel', True)
+        contract_end = filters.get('contract_end', '').strip()
+        sido_name = filters.get('sido')
+        sigungu_names = filters.get('sigungu', [])
+        umd_names = filters.get('umd', [])
+        area_min = filters.get('area_min')
+        area_max = filters.get('area_max')
+        deposit_min = filters.get('deposit_min')
+        deposit_max = filters.get('deposit_max')
+        rent_min = filters.get('rent_min')
+        rent_max = filters.get('rent_max')
+        build_year_min = filters.get('build_year_min')
+        build_year_max = filters.get('build_year_max')
+        page = filters.get('page', 1)
+        page_size = filters.get('page_size', 20)
+        offset = (page - 1) * page_size
+
+        # 필수값 검증: 계약만기시기 및 시군구
+        if not contract_end:
+            return jsonify({
+                'success': False,
+                'error': '계약만기시기를 선택해주세요.'
+            })
+
+        if not (sigungu_names and len(sigungu_names) > 0):
+            return jsonify({
+                'success': False,
+                'error': '최소 1개 이상의 시군구를 선택해주세요.'
+            })
+
+        all_results = []
+        result_counts = []  # 각 주택 유형별 조회 건수 추적
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        # 시군구 이름을 코드로 변환 (모든 주택 유형에서 공통 사용)
+        # 시도와 시군구를 함께 확인하여 정확한 지역만 선택
+        sgg_codes = []
+        if sigungu_names and len(sigungu_names) > 0:
+            for name in sigungu_names:
+                for code, data in REGIONS['sigungu'].items():
+                    # 시도와 시군구 이름이 모두 일치하는 경우만 선택
+                    if data['name'] == name and (sido_name is None or data['sido'] == sido_name):
+                        sgg_codes.append(code)
+
+        # 아파트 조회
+        if include_apt:
+            import time
+            start_time = time.time()
+            print(f"[DEBUG] ========== 아파트 조회 시작 ==========")
+            print(f"[DEBUG] 계약만기시기: {contract_end}")
+            print(f"[DEBUG] 시군구 코드: {sgg_codes}")
+            print(f"[DEBUG] 읍면동: {umd_names}")
+
+            query = """
+                SELECT
+                    '아파트' as 구분,
+                    sggcd as 시군구코드,
+                    umdnm as 읍면동리,
+                    jibun as 지번,
+                    aptnm as 단지명,
+                    excluusear as 면적,
+                    dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
+                    dealday as 계약일,
+                    deposit as 보증금,
+                    monthlyrent as 월세,
+                    floor as 층,
+                    buildyear as 건축년도,
+                    contracttype as 계약구분,
+                    contractterm as 계약기간,
+                    predeposit as 종전계약보증금,
+                    premonthlyrent as 종전계약월세,
+                    userrright as 갱신요구권사용
+                FROM apt_rent_transactions
+                WHERE 1=1
+            """
+            params = []
+
+            # 1. 지역 필터를 먼저 적용 (인덱스 활용, 성능 최적화)
+            if sgg_codes:
+                placeholders = ','.join(['%s'] * len(sgg_codes))
+                query += f" AND sggcd IN ({placeholders})"
+                params.extend(sgg_codes)
+
+            # 2. 읍면동 필터 추가
+            if umd_names and len(umd_names) > 0:
+                placeholders = ','.join(['%s'] * len(umd_names))
+                query += f" AND umdnm IN ({placeholders})"
+                params.extend(umd_names)
+
+            # 3. 계약만기시기 필터 (SPLIT_PART 사용)
+            if contract_end:
+                if len(contract_end) == 6:  # YYYYMM 형식
+                    short_format = contract_end[2:4] + '.' + contract_end[4:6]  # 202512 -> 25.12
+                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    params.append(short_format)
+                else:
+                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    params.append(contract_end)
+
+            # 4. 면적 필터
+            if area_min:
+                query += " AND CAST(excluusear AS FLOAT) >= %s"
+                params.append(area_min)
+            if area_max:
+                query += " AND CAST(excluusear AS FLOAT) <= %s"
+                params.append(area_max)
+
+            # 5. 보증금 필터
+            if deposit_min:
+                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) >= %s"
+                params.append(deposit_min)
+            if deposit_max:
+                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) <= %s"
+                params.append(deposit_max)
+
+            # 6. 월세 필터
+            if rent_min:
+                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) >= %s"
+                params.append(rent_min)
+            if rent_max:
+                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) <= %s"
+                params.append(rent_max)
+
+            # 7. 건축년도 필터
+            if build_year_min:
+                query += " AND CAST(buildyear AS INTEGER) >= %s"
+                params.append(build_year_min)
+            if build_year_max:
+                query += " AND CAST(buildyear AS INTEGER) <= %s"
+                params.append(build_year_max)
+
+            query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
+            params.extend([page_size, offset])
+
+            print(f"[DEBUG] 쿼리 실행 중...")
+            print(f"[DEBUG] 파라미터 개수: {len(params)}")
+            query_start = time.time()
+            cursor.execute(query, params)
+            query_end = time.time()
+            print(f"[DEBUG] 쿼리 실행 완료: {query_end - query_start:.2f}초")
+
+            results = cursor.fetchall()
+            print(f"[DEBUG] 아파트 결과: {len(results)}건")
+            result_counts.append(len(results))  # 건수 추적
+
+            # 시도/시군구명 추가
+            for row in results:
+                sgg_code = row.get('시군구코드')
+                if sgg_code and sgg_code in REGIONS['sigungu']:
+                    sido_full = REGIONS['sigungu'][sgg_code]['sido']
+                    row['시도'] = SIDO_ABBR.get(sido_full, sido_full)  # 축약형 사용
+                    row['시군구'] = REGIONS['sigungu'][sgg_code]['name']
+                else:
+                    row['시도'] = ''
+                    row['시군구'] = ''
+
+            all_results.extend(results)
+            total_time = time.time() - start_time
+            print(f"[DEBUG] 아파트 조회 총 소요시간: {total_time:.2f}초")
+
+        # 연립다세대 조회
+        if include_villa:
+            query = """
+                SELECT
+                    '연립다세대' as 구분,
+                    sggcd as 시군구코드,
+                    umdnm as 읍면동리,
+                    jibun as 지번,
+                    mhousename as 단지명,
+                    excluusear as 면적,
+                    dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
+                    dealday as 계약일,
+                    deposit as 보증금,
+                    monthlyrent as 월세,
+                    floor as 층,
+                    buildyear as 건축년도,
+                    contracttype as 계약구분,
+                    contractterm as 계약기간,
+                    predeposit as 종전계약보증금,
+                    premonthlyrent as 종전계약월세,
+                    userrright as 갱신요구권사용
+                FROM villa_rent_transactions
+                WHERE 1=1
+            """
+            params = []
+
+            # 1. 지역 필터를 먼저 적용 (인덱스 활용)
+            if sgg_codes:
+                placeholders = ','.join(['%s'] * len(sgg_codes))
+                query += f" AND sggcd IN ({placeholders})"
+                params.extend(sgg_codes)
+
+            # 2. 읍면동 필터 추가
+            if umd_names and len(umd_names) > 0:
+                placeholders = ','.join(['%s'] * len(umd_names))
+                query += f" AND umdnm IN ({placeholders})"
+                params.extend(umd_names)
+
+            # 3. 계약만기시기 필터
+            if contract_end:
+                if len(contract_end) == 6:  # YYYYMM 형식
+                    short_format = contract_end[2:4] + '.' + contract_end[4:6]  # 202508 -> 25.08
+                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    params.append(short_format)
+                else:
+                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    params.append(contract_end)
+
+            if area_min:
+                query += " AND CAST(excluusear AS FLOAT) >= %s"
+                params.append(area_min)
+            if area_max:
+                query += " AND CAST(excluusear AS FLOAT) <= %s"
+                params.append(area_max)
+
+            if deposit_min:
+                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) >= %s"
+                params.append(deposit_min)
+            if deposit_max:
+                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) <= %s"
+                params.append(deposit_max)
+
+            if rent_min:
+                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) >= %s"
+                params.append(rent_min)
+            if rent_max:
+                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) <= %s"
+                params.append(rent_max)
+
+            if build_year_min:
+                query += " AND CAST(buildyear AS INTEGER) >= %s"
+                params.append(build_year_min)
+            if build_year_max:
+                query += " AND CAST(buildyear AS INTEGER) <= %s"
+                params.append(build_year_max)
+
+            query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
+            params.extend([page_size, offset])
+
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+            result_counts.append(len(results))  # 건수 추적
+
+            for row in results:
+                sgg_code = row.get('시군구코드')
+                if sgg_code and sgg_code in REGIONS['sigungu']:
+                    sido_full = REGIONS['sigungu'][sgg_code]['sido']
+                    row['시도'] = SIDO_ABBR.get(sido_full, sido_full)  # 축약형 사용
+                    row['시군구'] = REGIONS['sigungu'][sgg_code]['name']
+                else:
+                    row['시도'] = ''
+                    row['시군구'] = ''
+
+            all_results.extend(results)
+
+        # 오피스텔 조회
+        if include_officetel:
+            query = """
+                SELECT
+                    '오피스텔' as 구분,
+                    sggcd as 시군구코드,
+                    umdnm as 읍면동리,
+                    jibun as 지번,
+                    offinm as 단지명,
+                    excluusear as 면적,
+                    dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
+                    dealday as 계약일,
+                    deposit as 보증금,
+                    monthlyrent as 월세,
+                    floor as 층,
+                    buildyear as 건축년도,
+                    contracttype as 계약구분,
+                    contractterm as 계약기간,
+                    predeposit as 종전계약보증금,
+                    premonthlyrent as 종전계약월세,
+                    userrright as 갱신요구권사용
+                FROM officetel_rent_transactions
+                WHERE 1=1
+            """
+            params = []
+
+            # 1. 지역 필터를 먼저 적용 (인덱스 활용)
+            if sgg_codes:
+                placeholders = ','.join(['%s'] * len(sgg_codes))
+                query += f" AND sggcd IN ({placeholders})"
+                params.extend(sgg_codes)
+
+            # 2. 읍면동 필터 추가
+            if umd_names and len(umd_names) > 0:
+                placeholders = ','.join(['%s'] * len(umd_names))
+                query += f" AND umdnm IN ({placeholders})"
+                params.extend(umd_names)
+
+            # 3. 계약만기시기 필터
+            if contract_end:
+                if len(contract_end) == 6:  # YYYYMM 형식
+                    short_format = contract_end[2:4] + '.' + contract_end[4:6]  # 202508 -> 25.08
+                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    params.append(short_format)
+                else:
+                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    params.append(contract_end)
+
+            if area_min:
+                query += " AND CAST(excluusear AS FLOAT) >= %s"
+                params.append(area_min)
+            if area_max:
+                query += " AND CAST(excluusear AS FLOAT) <= %s"
+                params.append(area_max)
+
+            if deposit_min:
+                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) >= %s"
+                params.append(deposit_min)
+            if deposit_max:
+                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) <= %s"
+                params.append(deposit_max)
+
+            if rent_min:
+                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) >= %s"
+                params.append(rent_min)
+            if rent_max:
+                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) <= %s"
+                params.append(rent_max)
+
+            if build_year_min:
+                query += " AND CAST(buildyear AS INTEGER) >= %s"
+                params.append(build_year_min)
+            if build_year_max:
+                query += " AND CAST(buildyear AS INTEGER) <= %s"
+                params.append(build_year_max)
+
+            query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
+            params.extend([page_size, offset])
+
+            cursor.execute(query, params)
+            results = cursor.fetchall()
+            result_counts.append(len(results))  # 건수 추적
+
+            for row in results:
+                sgg_code = row.get('시군구코드')
+                if sgg_code and sgg_code in REGIONS['sigungu']:
+                    sido_full = REGIONS['sigungu'][sgg_code]['sido']
+                    row['시도'] = SIDO_ABBR.get(sido_full, sido_full)  # 축약형 사용
+                    row['시군구'] = REGIONS['sigungu'][sgg_code]['name']
+                else:
+                    row['시도'] = ''
+                    row['시군구'] = ''
+
+            all_results.extend(results)
+
+        # 단독다가구 조회 (컬럼명이 한글일 수 있음)
+        if include_dagagu:
+            try:
+                # 먼저 테이블 구조를 확인
+                cursor.execute("SELECT * FROM dagagu_rent_transactions LIMIT 0")
+                col_names = [desc[0] for desc in cursor.description]
+
+                # 컬럼명 매핑 (실제 테이블 구조에 맞춘 올바른 인덱스)
+                # 8:전용면적, 10:계약년, 11:계약일, 12:보증금, 13:월세, 14:건축년도, 15:건물명
+                # 16:계약기간, 17:계약구분, 18:갱신요구권사용, 19:종전계약보증금, 20:종전계약월세, 21:층정보(주택유형)
+                query = f"""
+                    SELECT
+                        '단독다가구' as 구분,
+                        sggcd as 시군구코드,
+                        umdnm as 읍면동리,
+                        jibun as 지번,
+                        "{col_names[15]}" as 단지명,
+                        '-' as 층,
+                        "{col_names[8]}" as 면적,
+                        "{col_names[12]}" as 보증금,
+                        "{col_names[13]}" as 월세,
+                        "{col_names[10]}" as 계약년월,
+                        "{col_names[11]}" as 계약일,
+                        CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER) as 건축년도,
+                        "{col_names[17]}" as 계약구분,
+                        "{col_names[16]}" as 계약기간,
+                        "{col_names[19]}" as 종전계약보증금,
+                        "{col_names[20]}" as 종전계약월세,
+                        "{col_names[18]}" as 갱신요구권사용
+                    FROM dagagu_rent_transactions
+                    WHERE 1=1
+                """
+                params = []
+
+                # 1. 지역 필터를 먼저 적용 (인덱스 활용)
+                if sgg_codes:
+                    placeholders = ','.join(['%s'] * len(sgg_codes))
+                    query += f" AND sggcd IN ({placeholders})"
+                    params.extend(sgg_codes)
+
+                # 2. 읍면동 필터 추가
+                if umd_names and len(umd_names) > 0:
+                    placeholders = ','.join(['%s'] * len(umd_names))
+                    query += f" AND umdnm IN ({placeholders})"
+                    params.extend(umd_names)
+
+                # 3. 계약만기시기 필터 (col_names[16]: 계약기간)
+                if contract_end:
+                    if len(contract_end) == 6:  # YYYYMM 형식
+                        # 단독다가구는 YYYYMM 형식을 그대로 사용 (202508~202608 형태)
+                        query += f' AND SPLIT_PART("{col_names[16]}", \'~\', 2) = %s'
+                        params.append(contract_end)  # ~202512로 끝나는 것만
+                    else:
+                        query += f' AND SPLIT_PART("{col_names[16]}", \'~\', 2) = %s'
+                        params.append(contract_end)
+
+                if area_min:
+                    query += f' AND CAST("{col_names[8]}" AS FLOAT) >= %s'
+                    params.append(area_min)
+                if area_max:
+                    query += f' AND CAST("{col_names[8]}" AS FLOAT) <= %s'
+                    params.append(area_max)
+
+                if deposit_min:
+                    query += f' AND CAST(REPLACE("{col_names[12]}", \',\', \'\') AS INTEGER) >= %s'
+                    params.append(deposit_min)
+                if deposit_max:
+                    query += f' AND CAST(REPLACE("{col_names[12]}", \',\', \'\') AS INTEGER) <= %s'
+                    params.append(deposit_max)
+
+                if rent_min:
+                    query += f' AND CAST(REPLACE("{col_names[13]}", \',\', \'\') AS INTEGER) >= %s'
+                    params.append(rent_min)
+                if rent_max:
+                    query += f' AND CAST(REPLACE("{col_names[13]}", \',\', \'\') AS INTEGER) <= %s'
+                    params.append(rent_max)
+
+                if build_year_min:
+                    query += f' AND CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER) >= %s'
+                    params.append(build_year_min)
+                if build_year_max:
+                    query += f' AND CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER) <= %s'
+                    params.append(build_year_max)
+
+                query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
+                params.extend([page_size, offset])
+
+                cursor.execute(query, params)
+                results = cursor.fetchall()
+                result_counts.append(len(results))  # 건수 추적
+
+                for row in results:
+                    sgg_code = row.get('시군구코드')
+                    if sgg_code and sgg_code in REGIONS['sigungu']:
+                        sido_full = REGIONS['sigungu'][sgg_code]['sido']
+                        row['시도'] = SIDO_ABBR.get(sido_full, sido_full)  # 축약형 사용
+                        row['시군구'] = REGIONS['sigungu'][sgg_code]['name']
+                    else:
+                        row['시도'] = ''
+                        row['시군구'] = ''
+
+                all_results.extend(results)
+            except Exception as e:
+                print(f"[WARNING] 단독다가구 조회 오류: {str(e)}")
+
+        cursor.close()
+        conn.close()
+
+        # has_more 판단: 어떤 유형이라도 page_size만큼 조회되었다면 더 있을 가능성이 있음
+        has_more = any(count == page_size for count in result_counts)
+
+        return jsonify({
+            'success': True,
+            'data': all_results,
+            'count': len(all_results),
+            'has_more': has_more
+        })
+
+    except Exception as e:
+        print(f"[ERROR] 검색 오류: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'검색 중 오류가 발생했습니다: {str(e)}'
+        })
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)

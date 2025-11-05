@@ -1,0 +1,217 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>전월세 실거래가 조회</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/table-fix.css') }}">
+    <style>
+        /* 테이블 컬럼 너비 강제 적용 */
+        table th:nth-child(5), table td:nth-child(5) {
+            width: 80px !important;
+            max-width: 80px !important;
+            min-width: 80px !important;
+        }
+        table th:nth-child(6), table td:nth-child(6) {
+            width: 200px !important;
+            max-width: 200px !important;
+            min-width: 200px !important;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>전월세 실거래가 조회</h1>
+        </header>
+
+        <div class="filter-section">
+            <h2>검색 필터</h2>
+
+            <div class="filter-grid">
+                <!-- 주택 유형 선택 -->
+                <div class="filter-item full-width">
+                    <label>주택 유형</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="apt" value="apt" checked>
+                            아파트
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="villa" value="villa" checked>
+                            연립다세대
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="dagagu" value="dagagu" checked>
+                            단독다가구
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="officetel" value="officetel" checked>
+                            오피스텔
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 계약만기시기 -->
+                <div class="filter-item">
+                    <label for="contract-end">계약만기시기</label>
+                    <input type="text" id="contract-end" placeholder="예: 202412">
+                    <small>YYYYMM 형식으로 입력 (예: 202412)</small>
+                </div>
+
+                <!-- 시도 선택 -->
+                <div class="filter-item">
+                    <label for="sido">시도</label>
+                    <select id="sido">
+                        <option value="">시도 선택</option>
+                    </select>
+                </div>
+
+                <!-- 시군구 선택 -->
+                <div class="filter-item full-width">
+                    <label>시군구</label>
+                    <div class="checkbox-grid" id="sigungu-checkboxes">
+                        <div class="placeholder-text">시도를 먼저 선택해주세요</div>
+                    </div>
+                </div>
+
+                <!-- 읍면동 선택 -->
+                <div class="filter-item full-width">
+                    <label>읍면동</label>
+                    <div class="checkbox-grid" id="umd-checkboxes">
+                        <div class="placeholder-text">시군구를 먼저 선택해주세요</div>
+                    </div>
+                </div>
+
+                <!-- 면적 범위 -->
+                <div class="filter-item">
+                    <label for="area-min">최소 면적 (㎡)</label>
+                    <input type="number" id="area-min" placeholder="예: 60">
+                </div>
+
+                <div class="filter-item">
+                    <label for="area-max">최대 면적 (㎡)</label>
+                    <input type="number" id="area-max" placeholder="예: 150">
+                </div>
+
+                <!-- 보증금 범위 -->
+                <div class="filter-item">
+                    <label for="deposit-min">최소 보증금 (만원)</label>
+                    <input type="number" id="deposit-min" placeholder="예: 5000">
+                </div>
+
+                <div class="filter-item">
+                    <label for="deposit-max">최대 보증금 (만원)</label>
+                    <input type="number" id="deposit-max" placeholder="예: 50000">
+                </div>
+
+                <!-- 월세 범위 -->
+                <div class="filter-item">
+                    <label for="rent-min">최소 월세 (만원)</label>
+                    <input type="number" id="rent-min" placeholder="예: 30">
+                </div>
+
+                <div class="filter-item">
+                    <label for="rent-max">최대 월세 (만원)</label>
+                    <input type="number" id="rent-max" placeholder="예: 300">
+                </div>
+
+                <!-- 건축년도 -->
+                <div class="filter-item">
+                    <label for="build-year">건축년도</label>
+                    <input type="number" id="build-year" placeholder="예: 2010">
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button type="button" class="btn btn-secondary" id="reset-btn">초기화</button>
+                <button type="button" class="btn btn-primary" id="search-btn">검색</button>
+            </div>
+        </div>
+
+        <div class="result-section">
+            <div class="result-header">
+                <h2>검색 결과</h2>
+                <div class="result-count" id="result-count">0건</div>
+            </div>
+
+            <div class="error-message" id="error-message" style="display: none;"></div>
+
+            <div class="loading" id="loading" style="display: none;">
+                <div class="spinner"></div>
+                <p>검색 중...</p>
+            </div>
+
+            <div class="table-container">
+                <table id="results-table">
+                    <thead>
+                        <tr>
+                            <th>구분</th>
+                            <th>시도</th>
+                            <th>시군구</th>
+                            <th>읍면동리</th>
+                            <th>지번</th>
+                            <th>건물명</th>
+                            <th>층</th>
+                            <th>면적</th>
+                            <th>보증금</th>
+                            <th>월세</th>
+                            <th>계약년월</th>
+                            <th>계약일</th>
+                            <th>건축년도</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr>
+                            <td colspan="13" class="no-data">검색 조건을 입력하고 검색 버튼을 클릭해주세요</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script>
+        // 테이블 컬럼 너비 강제 적용
+        document.addEventListener('DOMContentLoaded', function() {
+            function fixTableColumns() {
+                // 5번째 컬럼 (지번) - 좁게
+                const addressColumns = document.querySelectorAll('table th:nth-child(5), table td:nth-child(5)');
+                addressColumns.forEach(col => {
+                    col.style.width = '80px';
+                    col.style.maxWidth = '80px';
+                    col.style.minWidth = '80px';
+                });
+
+                // 6번째 컬럼 (건물명) - 적당히 넓게
+                const buildingColumns = document.querySelectorAll('table th:nth-child(6), table td:nth-child(6)');
+                buildingColumns.forEach(col => {
+                    col.style.width = '200px';
+                    col.style.maxWidth = '200px';
+                    col.style.minWidth = '200px';
+                });
+            }
+
+            // 페이지 로드 시 실행
+            fixTableColumns();
+
+            // 테이블이 동적으로 업데이트될 때도 실행
+            const observer = new MutationObserver(function(mutations) {
+                mutations.forEach(function(mutation) {
+                    if (mutation.type === 'childList') {
+                        fixTableColumns();
+                    }
+                });
+            });
+
+            // 결과 섹션 감시
+            const resultSection = document.querySelector('.result-section');
+            if (resultSection) {
+                observer.observe(resultSection, { childList: true, subtree: true });
+            }
+        });
+    </script>
+</body>
+</html>

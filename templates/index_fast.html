@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>전월세 실거래가 조회</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/table-fix.css') }}">
+    <style>
+        /* 테이블 컬럼 너비 강제 적용 */
+        table th:nth-child(5), table td:nth-child(5) {
+            width: 80px !important;
+            max-width: 80px !important;
+            min-width: 80px !important;
+        }
+        table th:nth-child(6), table td:nth-child(6) {
+            width: 170px !important;
+            max-width: 170px !important;
+            min-width: 170px !important;
+        }
+
+        /* 읍면동 체크박스 다중 컬럼 스타일 */
+        .checkbox-grid {
+            display: grid !important;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)) !important;
+            gap: 8px !important;
+            margin-top: 8px;
+            max-height: 250px;
+            overflow-y: auto;
+            padding: 12px;
+            border: 1px solid var(--border-color);
+            border-radius: 6px;
+            background: var(--bg-color);
+        }
+
+        .umd-checkboxes {
+            display: grid !important;
+            grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)) !important;
+            gap: 6px !important;
+            margin-left: 16px;
+        }
+
+        /* 테이블 스크롤 개선 */
+        .table-container {
+            max-height: 70vh;
+            overflow-y: auto;
+        }
+
+        /* 로딩 중 스타일 */
+        .loading-more {
+            text-align: center;
+            padding: 20px;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>전월세 실거래가 조회</h1>
+        </header>
+
+        <section class="filter-section">
+            <h2>검색 조건</h2>
+            <div class="filter-grid">
+                <!-- 임대 유형 선택 -->
+                <div class="filter-item full-width">
+                    <label>임대 유형</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="include-apt" checked>
+                            아파트
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="include-villa" checked>
+                            연립다세대
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="include-dagagu" checked>
+                            단독다가구
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="include-officetel" checked>
+                            오피스텔
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 계약기간 종료 선택 -->
+                <div class="filter-item full-width">
+                    <label>계약기간 종료</label>
+                    <div class="checkbox-group">
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="include-finished">
+                            계약기간 종료
+                        </label>
+                        <label class="checkbox-label">
+                            <input type="checkbox" id="include-ongoing" checked>
+                            계약기간 진행중
+                        </label>
+                    </div>
+                </div>
+
+                <!-- 시도 선택 -->
+                <div class="filter-item">
+                    <label for="sido">시도</label>
+                    <select id="sido">
+                        <option value="">전체</option>
+                    </select>
+                </div>
+
+                <!-- 시군구 선택 -->
+                <div class="filter-item full-width">
+                    <label>시군구</label>
+                    <div class="checkbox-grid" id="sigungu-checkboxes">
+                        <div class="placeholder-text">시도를 먼저 선택해주세요</div>
+                    </div>
+                </div>
+
+                <!-- 읍면동 선택 -->
+                <div class="filter-item full-width">
+                    <label>읍면동</label>
+                    <div class="checkbox-grid" id="umd-checkboxes">
+                        <div class="placeholder-text">시군구를 먼저 선택해주세요</div>
+                    </div>
+                </div>
+
+                <!-- 면적 범위 -->
+                <div class="filter-item">
+                    <label for="area-min">최소 면적 (㎡)</label>
+                    <input type="number" id="area-min" placeholder="예: 60">
+                </div>
+
+                <div class="filter-item">
+                    <label for="area-max">최대 면적 (㎡)</label>
+                    <input type="number" id="area-max" placeholder="예: 150">
+                </div>
+
+                <!-- 보증금 범위 -->
+                <div class="filter-item">
+                    <label for="deposit-min">최소 보증금 (만원)</label>
+                    <input type="number" id="deposit-min" placeholder="예: 5000">
+                </div>
+
+                <div class="filter-item">
+                    <label for="deposit-max">최대 보증금 (만원)</label>
+                    <input type="number" id="deposit-max" placeholder="예: 50000">
+                </div>
+
+                <!-- 월세 범위 -->
+                <div class="filter-item">
+                    <label for="rent-min">최소 월세 (만원)</label>
+                    <input type="number" id="rent-min" placeholder="예: 30">
+                </div>
+
+                <div class="filter-item">
+                    <label for="rent-max">최대 월세 (만원)</label>
+                    <input type="number" id="rent-max" placeholder="예: 300">
+                </div>
+
+                <!-- 건축년도 범위 -->
+                <div class="filter-item">
+                    <label for="build-year-min">최소 건축년도</label>
+                    <input type="number" id="build-year-min" placeholder="예: 2000">
+                </div>
+
+                <div class="filter-item">
+                    <label for="build-year-max">최대 건축년도</label>
+                    <input type="number" id="build-year-max" placeholder="예: 2023">
+                </div>
+            </div>
+
+            <div class="button-group">
+                <button type="button" class="btn btn-secondary" onclick="resetFilters()">초기화</button>
+                <button type="button" class="btn btn-primary" onclick="searchTransactions()">검색</button>
+            </div>
+        </section>
+
+        <section class="result-section">
+            <div class="result-header">
+                <h2>검색 결과</h2>
+                <div class="result-count" id="result-count">검색 결과가 없습니다</div>
+            </div>
+            <div id="result-container">
+                <div class="no-data">검색 조건을 설정하고 검색 버튼을 눌러주세요.</div>
+            </div>
+        </section>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>
