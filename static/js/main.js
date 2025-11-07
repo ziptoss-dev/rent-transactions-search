@@ -1411,48 +1411,31 @@ document.addEventListener('click', function(e) {
 });
 
 
-// ============ 건물 검색 (자동완성) 기능 ============
-
-let searchTimeout = null;
+// ============ 건물 검색 (버튼 방식) 기능 ============
 
 function initBuildingSearch() {
     const searchInput = document.getElementById('building-search-input');
+    const searchBtn = document.getElementById('building-search-btn');
     const resultsContainer = document.getElementById('building-search-results');
 
-    if (!searchInput || !resultsContainer) return;
+    if (!searchInput || !searchBtn || !resultsContainer) return;
 
-    // 입력 이벤트 리스너 (debounce 적용)
-    searchInput.addEventListener('input', function() {
-        const query = this.value.trim();
+    // 검색 버튼 클릭 이벤트
+    searchBtn.addEventListener('click', function() {
+        const query = searchInput.value.trim();
 
-        // 기존 타이머 취소
-        if (searchTimeout) {
-            clearTimeout(searchTimeout);
-        }
-
-        // 입력값이 2글자 미만이면 결과 숨김
         if (query.length < 2) {
-            resultsContainer.style.display = 'none';
+            alert('읍면동명과 지번을 2글자 이상 입력해주세요.');
             return;
         }
 
-        // 300ms 후에 검색 실행 (debounce)
-        searchTimeout = setTimeout(() => {
-            searchBuildings(query);
-        }, 300);
+        searchBuildings(query);
     });
 
-    // 입력창 외부 클릭시 결과 숨김
-    document.addEventListener('click', function(e) {
-        if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
-            resultsContainer.style.display = 'none';
-        }
-    });
-
-    // 입력창 포커스시 결과가 있으면 다시 표시
-    searchInput.addEventListener('focus', function() {
-        if (resultsContainer.children.length > 0 && this.value.trim().length >= 2) {
-            resultsContainer.style.display = 'block';
+    // Enter 키로도 검색 가능
+    searchInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            searchBtn.click();
         }
     });
 }
@@ -1461,22 +1444,22 @@ function searchBuildings(query) {
     const resultsContainer = document.getElementById('building-search-results');
 
     // 로딩 표시
-    resultsContainer.innerHTML = '<div class="autocomplete-loading">검색 중...</div>';
+    resultsContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #64748b;">검색 중...</div>';
     resultsContainer.style.display = 'block';
 
     // API 호출
     fetch(`/api/search-building?q=${encodeURIComponent(query)}`)
         .then(response => response.json())
         .then(data => {
-            if (data.success) {
+            if (data.success && data.buildings && data.buildings.length > 0) {
                 displayBuildingResults(data.buildings);
             } else {
-                resultsContainer.innerHTML = '<div class="autocomplete-no-results">검색 결과가 없습니다</div>';
+                resultsContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #64748b;">검색 결과가 없습니다</div>';
             }
         })
         .catch(error => {
             console.error('건물 검색 오류:', error);
-            resultsContainer.innerHTML = '<div class="autocomplete-no-results">검색 중 오류가 발생했습니다</div>';
+            resultsContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #ef4444;">검색 중 오류가 발생했습니다</div>';
         });
 }
 
@@ -1484,48 +1467,48 @@ function displayBuildingResults(buildings) {
     const resultsContainer = document.getElementById('building-search-results');
 
     if (buildings.length === 0) {
-        resultsContainer.innerHTML = '<div class="autocomplete-no-results">검색 결과가 없습니다</div>';
+        resultsContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #64748b;">검색 결과가 없습니다</div>';
         return;
     }
 
     resultsContainer.innerHTML = '';
+    resultsContainer.style.display = 'grid';
+    resultsContainer.style.gridTemplateColumns = 'repeat(auto-fill, minmax(300px, 1fr))';
+    resultsContainer.style.gap = '16px';
 
     buildings.forEach(building => {
-        const item = document.createElement('div');
-        item.className = 'autocomplete-item';
+        const card = document.createElement('div');
+        card.style.cssText = 'border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; cursor: pointer; transition: all 0.2s; background: white;';
 
-        // 주택 유형에 따른 클래스 설정
-        let propertyTypeClass = '';
-        let propertyTypeText = '';
-        switch(building.property_type) {
-            case '아파트':
-                propertyTypeClass = 'property-type-apt';
-                propertyTypeText = '아파트';
-                break;
-            case '연립다세대':
-                propertyTypeClass = 'property-type-villa';
-                propertyTypeText = '연립다세대';
-                break;
-            case '오피스텔':
-                propertyTypeClass = 'property-type-officetel';
-                propertyTypeText = '오피스텔';
-                break;
-            case '단독다가구':
-                propertyTypeClass = 'property-type-dagagu';
-                propertyTypeText = '단독다가구';
-                break;
-        }
+        // 주택 유형별 색상
+        const typeColors = {
+            '아파트': '#3b82f6',
+            '연립다세대': '#10b981',
+            '오피스텔': '#f59e0b',
+            '단독다가구': '#8b5cf6'
+        };
+        const typeColor = typeColors[building.property_type] || '#6b7280';
 
-        item.innerHTML = `
-            <div class="autocomplete-item-header">
-                <span class="autocomplete-building-name">${building.building_name || '(건물명 없음)'}</span>
-                <span class="autocomplete-property-type ${propertyTypeClass}">${propertyTypeText}</span>
+        card.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                <span style="font-weight: 600; font-size: 16px; color: #1e293b;">${building.building_name || '(건물명 없음)'}</span>
+                <span style="background: ${typeColor}; color: white; padding: 4px 12px; border-radius: 12px; font-size: 12px; font-weight: 600;">${building.property_type}</span>
             </div>
-            <div class="autocomplete-address">${building.full_address}</div>
+            <div style="color: #64748b; font-size: 14px;">${building.full_address}</div>
         `;
 
-        // 클릭 이벤트: 기존 모달 함수 사용
-        item.addEventListener('click', () => {
+        // 호버 효과
+        card.addEventListener('mouseenter', () => {
+            card.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.1)';
+            card.style.transform = 'translateY(-2px)';
+        });
+        card.addEventListener('mouseleave', () => {
+            card.style.boxShadow = 'none';
+            card.style.transform = 'none';
+        });
+
+        // 클릭 이벤트
+        card.addEventListener('click', () => {
             openBuildingModal(
                 building.building_name,
                 building.property_type,
@@ -1535,11 +1518,9 @@ function displayBuildingResults(buildings) {
                 building.sido,
                 building.sigungu
             );
-            resultsContainer.style.display = 'none';
-            document.getElementById('building-search-input').value = '';
         });
 
-        resultsContainer.appendChild(item);
+        resultsContainer.appendChild(card);
     });
 }
 

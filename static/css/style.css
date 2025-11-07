@@ -82,6 +82,37 @@ header h1 {
     background: white;
 }
 
+/* 건물 검색 컨테이너 (버튼 방식) */
+.building-search-container {
+    display: flex;
+    gap: 12px;
+    max-width: 700px;
+}
+
+.building-search-container input {
+    flex: 1;
+    padding: 14px 18px;
+    border: 2px solid rgba(255, 255, 255, 0.3);
+    border-radius: 10px;
+    font-size: 16px;
+    background: rgba(255, 255, 255, 0.95);
+    transition: all 0.3s;
+}
+
+.building-search-container input:focus {
+    outline: none;
+    border-color: white;
+    box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.2);
+    background: white;
+}
+
+.building-search-container button {
+    padding: 14px 32px;
+    font-size: 16px;
+    font-weight: 600;
+    white-space: nowrap;
+}
+
 .autocomplete-results {
     position: absolute;
     top: 100%;
