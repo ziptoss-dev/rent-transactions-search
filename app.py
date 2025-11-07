@@ -1027,12 +1027,229 @@ def api_umd():
         })
 
 
+def fetch_officetel_standard_prices_batch(cursor, sggcd, rows):
+    """
+    여러 행의 오피스텔 기준시가를 일괄 조회
+    Returns: dict mapping (지번, 층, 면적) -> {'unit_price': ..., 'exclusive_area': ..., 'shared_area': ...}
+    """
+    print(f"[DEBUG 오피스텔일괄] 시작: {len(rows)}건, sggcd={sggcd}")
+
+    if not rows:
+        print("[DEBUG 오피스텔일괄] rows가 비어있음")
+        return {}
+
+    # 법정동코드 5자리 사용
+    bjdcd_5 = sggcd
+    print(f"[DEBUG 오피스텔일괄] 법정동코드 5자리: {bjdcd_5}")
+
+    # 모든 row의 조건 수집
+    conditions = []
+    for idx, row in enumerate(rows):
+        jibun = row.get('지번')
+        floor = row.get('층')
+        area = row.get('면적')
+
+        if not all([jibun, floor is not None, area]):
+            if idx < 3:  # 처음 3개만 로그
+                print(f"[DEBUG 오피스텔일괄] 행{idx} 스킵 - 지번={jibun}, 층={floor}, 면적={area}")
+            continue
+
+        # 지번 파싱
+        parts = jibun.split('-')
+        bunji = parts[0].strip()
+        ho = parts[1].strip() if len(parts) > 1 else '0'
+
+        # 번지/호 검증 (숫자만 허용)
+        if not bunji or not bunji.isdigit():
+            if idx < 3:
+                print(f"[DEBUG 오피스텔일괄] 행{idx} 번지 검증 실패 - 지번={jibun}, bunji={bunji}")
+            continue
+        if not ho or not ho.isdigit():
+            if idx < 3:
+                print(f"[DEBUG 오피스텔일괄] 행{idx} 호 검증 실패 - 지번={jibun}, ho={ho}")
+            continue
+
+        # 층 변환
+        try:
+            floor_int = int(floor)
+        except Exception as e:
+            if idx < 3:
+                print(f"[DEBUG 오피스텔일괄] 행{idx} 층 변환 실패 - 층={floor}, 오류={e}")
+            continue
+
+        # 면적 변환
+        try:
+            area_float = round(float(area), 2)
+        except Exception as e:
+            if idx < 3:
+                print(f"[DEBUG 오피스텔일괄] 행{idx} 면적 변환 실패 - 면적={area}, 오류={e}")
+            continue
+
+        conditions.append({
+            '지번': jibun,
+            '층': floor,
+            '면적': area,
+            'bunji': bunji,
+            'ho': ho,
+            'floor_int': floor_int,
+            'area_float': area_float
+        })
+
+        # 처음 3개 조건만 로그 출력
+        if idx < 3:
+            print(f"[DEBUG 오피스텔일괄] 조건{idx}: 지번={jibun}, bunji={bunji}, ho={ho}, floor_int={floor_int}, area={area_float}")
+
+    if not conditions:
+        print("[DEBUG 오피스텔일괄] 조건이 하나도 없음")
+        return {}
+
+    print(f"[DEBUG 오피스텔일괄] 총 {len(conditions)}개 조건 생성")
+
+    # WHERE 절 생성 (OR로 연결)
+    where_parts = []
+    params = [bjdcd_5]
+
+    for cond in conditions:
+        # 층 구분 조건 (파라미터는 나중에 추가)
+        if cond['floor_int'] < 0:
+            # 지하층
+            floor_condition = '("건물층구분코드" = \'지하층\' AND "상가건물층주소" ~ \'^[0-9]+$\' AND "상가건물층주소"::INTEGER = %s)'
+            floor_param = abs(cond['floor_int'])
+        else:
+            # 지상층
+            floor_condition = '("건물층구분코드" = \'지상층\' AND "상가건물층주소" ~ \'^[0-9]+$\' AND "상가건물층주소"::INTEGER = %s)'
+            floor_param = cond['floor_int']
+
+        where_parts.append(
+            f'("번지" ~ \'^[0-9]+$\' AND "번지"::INTEGER = %s AND "호" ~ \'^[0-9]+$\' AND "호"::INTEGER = %s AND {floor_condition} AND "전용면적"::FLOAT = %s)'
+        )
+        # WHERE 절의 순서대로 파라미터 추가: 번지(int), 호(int), 층(int), 면적(float)
+        params.extend([int(cond['bunji']), int(cond['ho']), floor_param, cond['area_float']])
+
+    query = f"""
+        SELECT DISTINCT
+            "번지", "호", "상가건물층주소", "건물층구분코드", "전용면적"::FLOAT as 전용면적,
+            "공유면적"::FLOAT as 공유면적, "고시가격"::FLOAT as 고시가격
+        FROM officetel_standard_price
+        WHERE LEFT("법정동코드", 5) = %s
+          AND ({' OR '.join(where_parts)})
+    """
+
+    print(f"[DEBUG 오피스텔일괄] 쿼리 실행: {len(conditions)}개 조건")
+    print(f"[DEBUG 오피스텔일괄] 법정동코드 파라미터: {params[0]}")
+    print(f"[DEBUG 오피스텔일괄] 첫 3개 조건 파라미터 샘플: {params[1:min(13, len(params))]}")  # 첫 3개 조건 = 12개 파라미터
+
+    # 실제 쿼리 출력 (첫 1000자만)
+    try:
+        formatted_query = query % tuple(f"'{p}'" if isinstance(p, str) else str(p) for p in params)
+        print(f"[DEBUG 오피스텔일괄] 실제 쿼리 샘플:\n{formatted_query[:1000]}")
+    except:
+        pass
+
+    cursor.execute(query, params)
+    db_results = cursor.fetchall()
+    print(f"[DEBUG 오피스텔일괄] DB 결과: {len(db_results)}건")
+
+    if len(db_results) > 0:
+        print(f"[DEBUG 오피스텔일괄] DB 샘플 결과: 번지={db_results[0]['번지']}, 호={db_results[0]['호']}, 층구분={db_results[0]['건물층구분코드']}, 층주소={db_results[0]['상가건물층주소']}, 전용면적={db_results[0]['전용면적']}")
+    else:
+        # 0건인 경우 디버깅: 해당 법정동코드에 데이터가 있는지 확인
+        test_query = """
+            SELECT COUNT(*) as cnt,
+                   MIN("번지") as min_bunji, MAX("번지") as max_bunji,
+                   MIN("호") as min_ho, MAX("호") as max_ho
+            FROM officetel_standard_price
+            WHERE LEFT("법정동코드", 5) = %s
+        """
+        cursor.execute(test_query, [bjdcd_5])
+        test_result = cursor.fetchone()
+        print(f"[DEBUG 오피스텔일괄] 해당 법정동코드({bjdcd_5}) 총 데이터: {test_result['cnt']}건, 번지범위: {test_result['min_bunji']}~{test_result['max_bunji']}, 호범위: {test_result['min_ho']}~{test_result['max_ho']}")
+
+        # 첫 번째 조건으로 샘플 검색
+        if conditions:
+            first_cond = conditions[0]
+            sample_query = """
+                SELECT "번지", "호", "건물층구분코드", "상가건물층주소", "전용면적"::FLOAT as 전용면적
+                FROM officetel_standard_price
+                WHERE LEFT("법정동코드", 5) = %s
+                  AND "번지" = %s
+                LIMIT 5
+            """
+            cursor.execute(sample_query, [bjdcd_5, first_cond['bunji']])
+            samples = cursor.fetchall()
+            print(f"[DEBUG 오피스텔일괄] 첫 조건 번지({first_cond['bunji']}) 샘플: {len(samples)}건")
+            for s in samples[:3]:
+                print(f"  - 번지={s['번지']}(타입:{type(s['번지']).__name__}), 호={s['호']}(타입:{type(s['호']).__name__}), 층={s['상가건물층주소']}(타입:{type(s['상가건물층주소']).__name__}), 면적={s['전용면적']}")
+
+    # 결과를 딕셔너리로 매핑
+    price_map = {}
+    for db_row in db_results:
+        # 원래 지번 형태로 복원 (0-padding 제거를 위해 int 변환 후 다시 str)
+        bunji = str(int(db_row['번지']))
+        ho = str(int(db_row['호']))
+        jibun_key = bunji if ho == '0' else f"{bunji}-{ho}"
+
+        # 층 복원
+        floor_code = db_row['건물층구분코드']
+        floor_num = int(db_row['상가건물층주소'])
+        floor_key = -floor_num if floor_code == '지하층' else floor_num
+
+        # 면적
+        area_key = round(float(db_row['전용면적']), 2)
+
+        key = (jibun_key, floor_key, area_key)
+
+        if key not in price_map:
+            price_map[key] = []
+
+        try:
+            unit_price = float(db_row['고시가격'])
+            exclusive_area = float(db_row['전용면적'])
+            shared_area = float(db_row['공유면적'])
+            price_map[key].append({
+                'unit_price': unit_price,
+                'exclusive_area': exclusive_area,
+                'shared_area': shared_area
+            })
+        except:
+            continue
+
+    # 평균 계산 및 결과 맵 생성
+    result_map = {}
+    for key, prices in price_map.items():
+        if prices:
+            # 첫 번째 값 사용 (DISTINCT로 중복 제거되어 있음)
+            data = prices[0]
+            total_area = data['exclusive_area'] + data['shared_area']
+            standard_price = data['unit_price'] * total_area
+            threshold_126 = standard_price * 1.26
+
+            result_map[key] = {
+                'unit_price': data['unit_price'],
+                'exclusive_area': data['exclusive_area'],
+                'shared_area': data['shared_area'],
+                'total_area': total_area,
+                'standard_price': int(standard_price),
+                'threshold_126': int(threshold_126)
+            }
+
+    print(f"[DEBUG 오피스텔일괄] 매핑 완료: {len(result_map)}건")
+    if result_map:
+        sample_key = list(result_map.keys())[0]
+        print(f"[DEBUG 오피스텔일괄] 샘플 키: {sample_key}")
+
+    return result_map
+
+
 def fetch_apartment_prices_batch(cursor, sggcd, umdnm, rows):
     """
     여러 행의 공동주택가격을 일괄 조회 (N+1 쿼리 문제 해결)
     Returns: dict mapping (지번, 층, 면적) -> {'price': ..., 'threshold_126': ...}
     """
+    print(f"[DEBUG 일괄조회] 시작: {len(rows)}건, sggcd={sggcd}, umdnm={umdnm}")
+
     if not rows:
+        print("[DEBUG 일괄조회] rows가 비어있음")
         return {}
 
     # 법정동코드 10자리 찾기
@@ -1043,6 +1260,7 @@ def fetch_apartment_prices_batch(cursor, sggcd, umdnm, rows):
             break
 
     if not bjdcd_10:
+        print(f"[DEBUG 일괄조회] 법정동코드 찾기 실패")
         return {}
 
     # 모든 row의 조건 수집
@@ -1104,16 +1322,22 @@ def fetch_apartment_prices_batch(cursor, sggcd, umdnm, rows):
           AND ({' OR '.join(where_parts)})
     """
 
+    print(f"[DEBUG 일괄조회] 쿼리 실행: {len(conditions)}개 조건")
+
     cursor.execute(query, params)
     db_results = cursor.fetchall()
+    print(f"[DEBUG 일괄조회] DB 결과: {len(db_results)}건")
 
     # 결과를 딕셔너리로 매핑
     price_map = {}
     for db_row in db_results:
-        # 원래 지번 형태로 복원
-        jibun_key = db_row['본번'] if db_row['부번'] == '0' else f"{db_row['본번']}-{db_row['부번']}"
+        # 원래 지번 형태로 복원 (공백 제거)
+        bon = str(db_row['본번']).strip()
+        bu = str(db_row['부번']).strip()
+        jibun_key = bon if bu == '0' else f"{bon}-{bu}"
         floor_key = int(db_row['층번호'])
-        area_key = float(db_row['면적'])
+        # 면적을 2자리로 반올림 (쿼리 시와 동일하게)
+        area_key = round(float(db_row['면적']), 2)
 
         key = (jibun_key, floor_key, area_key)
 
@@ -1135,6 +1359,11 @@ def fetch_apartment_prices_batch(cursor, sggcd, umdnm, rows):
                 'price': int(avg_price),
                 'threshold_126': int(avg_price * 1.26)
             }
+
+    print(f"[DEBUG 일괄조회] 매핑 완료: {len(result_map)}건")
+    if result_map:
+        sample_key = list(result_map.keys())[0]
+        print(f"[DEBUG 일괄조회] 샘플 키: {sample_key}")
 
     return result_map
 
@@ -1511,7 +1740,7 @@ def api_search():
             print(f"[DEBUG] 아파트 결과: {len(results)}건")
             result_counts.append(len(results))  # 건수 추적
 
-            # 시도/시군구명 추가 및 호실 정보 조회
+            # 시도/시군구명 추가
             for row in results:
                 sgg_code = row.get('시군구코드')
                 if sgg_code and sgg_code in REGIONS['sigungu']:
@@ -1522,7 +1751,40 @@ def api_search():
                     row['시도'] = ''
                     row['시군구'] = ''
 
-                # 호실 정보 조회 (아파트)
+            # 공동주택가격 일괄 조회 (N+1 쿼리 문제 해결)
+            # 시군구별로 그룹화하여 일괄 조회
+            from collections import defaultdict
+            sgg_groups = defaultdict(lambda: defaultdict(list))
+            for row in results:
+                sgg_code = row.get('시군구코드')
+                umd_name = row.get('읍면동리')
+                if sgg_code and umd_name:
+                    sgg_groups[sgg_code][umd_name].append(row)
+
+            # 각 그룹별로 일괄 조회
+            for sgg_code, umd_dict in sgg_groups.items():
+                for umd_name, rows in umd_dict.items():
+                    price_map = fetch_apartment_prices_batch(cursor, sgg_code, umd_name, rows)
+
+                    # 결과 매핑
+                    for row in rows:
+                        jibun = row.get('지번')
+                        floor = row.get('층')
+                        area = row.get('면적')
+
+                        if jibun and floor is not None and area:
+                            try:
+                                # 면적을 2자리로 반올림하여 키 생성 (batch 함수와 동일하게)
+                                area_rounded = round(float(area), 2)
+                                key = (jibun, int(floor), area_rounded)
+                                if key in price_map:
+                                    row['공동주택가격'] = price_map[key]['price']
+                                    row['공동주택가격_126퍼센트'] = price_map[key]['threshold_126']
+                            except:
+                                pass
+
+            # 호실 정보 조회 (아파트)
+            for row in results:
                 unit_info = fetch_unit_info_for_row(
                     cursor,
                     row.get('시군구코드'),
@@ -1534,19 +1796,6 @@ def api_search():
                 row['동호명'] = unit_info['unit']
                 row['동호명_전체목록'] = unit_info['all_units']
                 row['동호명_더보기'] = unit_info['has_more']
-
-                # 공동주택가격 조회 (아파트)
-                apt_price = fetch_apartment_price_for_row(
-                    cursor,
-                    row.get('시군구코드'),
-                    row.get('읍면동리'),
-                    row.get('지번'),
-                    row.get('층'),
-                    row.get('면적')
-                )
-                if apt_price:
-                    row['공동주택가격'] = apt_price['price']
-                    row['공동주택가격_126퍼센트'] = apt_price['threshold_126']
 
             all_results.extend(results)
             total_time = time.time() - start_time
@@ -1635,6 +1884,7 @@ def api_search():
             results = cursor.fetchall()
             result_counts.append(len(results))  # 건수 추적
 
+            # 시도/시군구명 추가
             for row in results:
                 sgg_code = row.get('시군구코드')
                 if sgg_code and sgg_code in REGIONS['sigungu']:
@@ -1645,7 +1895,39 @@ def api_search():
                     row['시도'] = ''
                     row['시군구'] = ''
 
-                # 호실 정보 조회 (연립다세대)
+            # 공동주택가격 일괄 조회 (N+1 쿼리 문제 해결)
+            from collections import defaultdict
+            sgg_groups = defaultdict(lambda: defaultdict(list))
+            for row in results:
+                sgg_code = row.get('시군구코드')
+                umd_name = row.get('읍면동리')
+                if sgg_code and umd_name:
+                    sgg_groups[sgg_code][umd_name].append(row)
+
+            # 각 그룹별로 일괄 조회
+            for sgg_code, umd_dict in sgg_groups.items():
+                for umd_name, rows in umd_dict.items():
+                    price_map = fetch_apartment_prices_batch(cursor, sgg_code, umd_name, rows)
+
+                    # 결과 매핑
+                    for row in rows:
+                        jibun = row.get('지번')
+                        floor = row.get('층')
+                        area = row.get('면적')
+
+                        if jibun and floor is not None and area:
+                            try:
+                                # 면적을 2자리로 반올림하여 키 생성 (batch 함수와 동일하게)
+                                area_rounded = round(float(area), 2)
+                                key = (jibun, int(floor), area_rounded)
+                                if key in price_map:
+                                    row['공동주택가격'] = price_map[key]['price']
+                                    row['공동주택가격_126퍼센트'] = price_map[key]['threshold_126']
+                            except:
+                                pass
+
+            # 호실 정보 조회 (연립다세대)
+            for row in results:
                 unit_info = fetch_unit_info_for_row(
                     cursor,
                     row.get('시군구코드'),
@@ -1658,57 +1940,30 @@ def api_search():
                 row['동호명_전체목록'] = unit_info['all_units']
                 row['동호명_더보기'] = unit_info['has_more']
 
-                # 공동주택가격 조회 (연립다세대)
-                apt_price = fetch_apartment_price_for_row(
-                    cursor,
-                    row.get('시군구코드'),
-                    row.get('읍면동리'),
-                    row.get('지번'),
-                    row.get('층'),
-                    row.get('면적')
-                )
-                if apt_price:
-                    row['공동주택가격'] = apt_price['price']
-                    row['공동주택가격_126퍼센트'] = apt_price['threshold_126']
-
             all_results.extend(results)
 
         # 오피스텔 조회
         if include_officetel:
             query = """
-                SELECT DISTINCT ON (rent.id)
+                SELECT
                     '오피스텔' as 구분,
-                    rent.sggcd as 시군구코드,
-                    rent.umdnm as 읍면동리,
-                    rent.jibun as 지번,
-                    rent.offinm as 단지명,
-                    rent.excluusear as 면적,
-                    rent.dealyear || LPAD(rent.dealmonth::text, 2, '0') as 계약년월,
-                    rent.dealday as 계약일,
-                    rent.deposit as 보증금,
-                    rent.monthlyrent as 월세,
-                    rent.floor as 층,
-                    rent.buildyear as 건축년도,
-                    rent.contracttype as 계약구분,
-                    rent.contractterm as 계약기간,
-                    rent.predeposit as 종전계약보증금,
-                    rent.premonthlyrent as 종전계약월세,
-                    rent.userrright as 갱신요구권사용,
-                    sp.고시가격 as 기준시가_고시가격,
-                    sp.전용면적 as 기준시가_전용면적,
-                    sp.공유면적 as 기준시가_공유면적
-                FROM officetel_rent_transactions rent
-                LEFT JOIN officetel_standard_price sp ON
-                    LEFT(sp.법정동코드, 5) = rent.sggcd
-                    AND sp.번지 ~ '^[0-9]+$' AND sp.번지::INTEGER = SPLIT_PART(rent.jibun, '-', 1)::INTEGER
-                    AND sp.호 ~ '^[0-9]+$' AND sp.호::INTEGER = NULLIF(SPLIT_PART(rent.jibun, '-', 2), '')::INTEGER
-                    AND sp.상가건물층주소 ~ '^[0-9]+$'
-                    AND (
-                        (rent.floor::INTEGER < 0 AND sp.건물층구분코드 = '지하층' AND sp.상가건물층주소::INTEGER = ABS(rent.floor::INTEGER))
-                        OR
-                        (rent.floor::INTEGER >= 0 AND sp.건물층구분코드 = '지상층' AND sp.상가건물층주소::INTEGER = rent.floor::INTEGER)
-                    )
-                    AND sp.전용면적::FLOAT = rent.excluusear::FLOAT
+                    sggcd as 시군구코드,
+                    umdnm as 읍면동리,
+                    jibun as 지번,
+                    offinm as 단지명,
+                    excluusear as 면적,
+                    dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
+                    dealday as 계약일,
+                    deposit as 보증금,
+                    monthlyrent as 월세,
+                    floor as 층,
+                    buildyear as 건축년도,
+                    contracttype as 계약구분,
+                    contractterm as 계약기간,
+                    predeposit as 종전계약보증금,
+                    premonthlyrent as 종전계약월세,
+                    userrright as 갱신요구권사용
+                FROM officetel_rent_transactions
                 WHERE 1=1
             """
             params = []
@@ -1716,88 +1971,108 @@ def api_search():
             # 1. 지역 필터를 먼저 적용 (인덱스 활용)
             if sgg_codes:
                 placeholders = ','.join(['%s'] * len(sgg_codes))
-                query += f" AND rent.sggcd IN ({placeholders})"
+                query += f" AND sggcd IN ({placeholders})"
                 params.extend(sgg_codes)
 
             # 2. 읍면동 필터 추가
             if umd_names and len(umd_names) > 0:
                 placeholders = ','.join(['%s'] * len(umd_names))
-                query += f" AND rent.umdnm IN ({placeholders})"
+                query += f" AND umdnm IN ({placeholders})"
                 params.extend(umd_names)
 
             # 3. 계약만기시기 필터
             if contract_end:
                 if len(contract_end) == 6:  # YYYYMM 형식
                     short_format = contract_end[2:4] + '.' + contract_end[4:6]  # 202508 -> 25.08
-                    query += " AND SPLIT_PART(rent.contractterm, '~', 2) = %s"
+                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
                     params.append(short_format)
                 else:
-                    query += " AND SPLIT_PART(rent.contractterm, '~', 2) = %s"
+                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
                     params.append(contract_end)
 
             if area_min:
-                query += " AND CAST(rent.excluusear AS FLOAT) >= %s"
+                query += " AND CAST(excluusear AS FLOAT) >= %s"
                 params.append(area_min)
             if area_max:
-                query += " AND CAST(rent.excluusear AS FLOAT) <= %s"
+                query += " AND CAST(excluusear AS FLOAT) <= %s"
                 params.append(area_max)
 
             if deposit_min:
-                query += " AND CAST(REPLACE(rent.deposit, ',', '') AS INTEGER) >= %s"
+                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) >= %s"
                 params.append(deposit_min)
             if deposit_max:
-                query += " AND CAST(REPLACE(rent.deposit, ',', '') AS INTEGER) <= %s"
+                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) <= %s"
                 params.append(deposit_max)
 
             if rent_min:
-                query += " AND CAST(REPLACE(rent.monthlyrent, ',', '') AS INTEGER) >= %s"
+                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) >= %s"
                 params.append(rent_min)
             if rent_max:
-                query += " AND CAST(REPLACE(rent.monthlyrent, ',', '') AS INTEGER) <= %s"
+                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) <= %s"
                 params.append(rent_max)
 
             if build_year_min:
-                query += " AND CAST(rent.buildyear AS INTEGER) >= %s"
+                query += " AND CAST(buildyear AS INTEGER) >= %s"
                 params.append(build_year_min)
             if build_year_max:
-                query += " AND CAST(rent.buildyear AS INTEGER) <= %s"
+                query += " AND CAST(buildyear AS INTEGER) <= %s"
                 params.append(build_year_max)
 
-            query += " ORDER BY rent.id, rent.dealyear DESC, rent.dealmonth DESC, rent.dealday DESC LIMIT %s OFFSET %s"
+            query += " ORDER BY dealyear DESC, dealmonth DESC, dealday DESC LIMIT %s OFFSET %s"
             params.extend([page_size, offset])
 
             cursor.execute(query, params)
             results = cursor.fetchall()
             result_counts.append(len(results))  # 건수 추적
 
+            # 시도/시군구명 추가
             for row in results:
                 sgg_code = row.get('시군구코드')
                 if sgg_code and sgg_code in REGIONS['sigungu']:
                     sido_full = REGIONS['sigungu'][sgg_code]['sido']
-                    row['시도'] = SIDO_ABBR.get(sido_full, sido_full)  # 축약형 사용
+                    row['시도'] = SIDO_ABBR.get(sido_full, sido_full)
                     row['시군구'] = REGIONS['sigungu'][sgg_code]['name']
                 else:
                     row['시도'] = ''
                     row['시군구'] = ''
 
-                # 오피스텔 기준시가 계산 (기준시가 데이터가 있을 경우에만)
-                if row.get('기준시가_고시가격') and row.get('기준시가_전용면적') and row.get('기준시가_공유면적'):
-                    try:
-                        unit_price = float(row['기준시가_고시가격'])
-                        exclusive_area = float(row['기준시가_전용면적'])
-                        shared_area = float(row['기준시가_공유면적'])
-                        total_area = exclusive_area + shared_area
-                        standard_price = unit_price * total_area
-                        threshold_126 = standard_price * 1.26
+            # 오피스텔 기준시가 일괄 조회
+            # 시군구별로 그룹화
+            from collections import defaultdict
+            sgg_groups_off = defaultdict(list)
+            for row in results:
+                sgg_code = row.get('시군구코드')
+                if sgg_code:
+                    sgg_groups_off[sgg_code].append(row)
 
-                        row['기준시가_면적당가격'] = unit_price
-                        row['기준시가_면적계'] = total_area
-                        row['기준시가_총액'] = standard_price
-                        row['기준시가_126퍼센트'] = threshold_126
-                    except (ValueError, TypeError):
-                        pass
+            # 각 시군구별로 일괄 조회
+            for sgg_code, rows in sgg_groups_off.items():
+                price_map = fetch_officetel_standard_prices_batch(cursor, sgg_code, rows)
 
-                # 호실 정보 조회 (오피스텔)
+                # 결과 매핑
+                for row in rows:
+                    jibun = row.get('지번')
+                    floor = row.get('층')
+                    area = row.get('면적')
+
+                    if jibun and floor is not None and area:
+                        try:
+                            # 면적을 2자리로 반올림하여 키 생성
+                            area_rounded = round(float(area), 2)
+                            key = (jibun, int(floor), area_rounded)
+                            if key in price_map:
+                                data = price_map[key]
+                                row['기준시가_면적당가격'] = data['unit_price']
+                                row['기준시가_전용면적'] = data['exclusive_area']
+                                row['기준시가_공유면적'] = data['shared_area']
+                                row['기준시가_면적계'] = data['total_area']
+                                row['기준시가_총액'] = data['standard_price']
+                                row['기준시가_126퍼센트'] = data['threshold_126']
+                        except:
+                            pass
+
+            # 호실 정보 조회 (오피스텔)
+            for row in results:
                 unit_info = fetch_unit_info_for_row(
                     cursor,
                     row.get('시군구코드'),
@@ -1963,7 +2238,7 @@ def api_search():
 
 @app.route('/api/building-transactions', methods=['GET', 'POST'])
 def get_building_transactions():
-    """특정 주소의 모든 실거래가 조회"""
+    """특정 주소의 모든 실거래가 조회 (페이지네이션 지원)"""
     try:
         # GET과 POST 모두 지원
         if request.method == 'GET':
@@ -1972,6 +2247,8 @@ def get_building_transactions():
             sigungu_code = (request.args.get('sgg_code') or '').strip()
             umd_name = (request.args.get('umd_name') or '').strip()
             jibun = (request.args.get('jibun') or '').strip()
+            page = int(request.args.get('page', 1))
+            page_size = int(request.args.get('page_size', 50))
         else:
             data = request.get_json()
             building_name = (data.get('building_name') or '').strip()
@@ -1979,9 +2256,14 @@ def get_building_transactions():
             sigungu_code = (data.get('sigungu_code') or '').strip()
             umd_name = (data.get('umd_name') or '').strip()
             jibun = (data.get('jibun') or '').strip()
+            page = int(data.get('page', 1))
+            page_size = int(data.get('page_size', 50))
+
+        # 페이지네이션 계산
+        offset = (page - 1) * page_size
 
         # 디버깅 로그
-        print(f"[DEBUG] 모달 조회 요청 - 주택유형: {property_type}, 시군구코드: {sigungu_code}, 읍면동: {umd_name}, 지번: {jibun}, 건물명: {building_name}")
+        print(f"[DEBUG 모달] 조회 요청 - 주택유형: {property_type}, 시군구코드: {sigungu_code}, 읍면동: {umd_name}, 지번: {jibun}, 건물명: {building_name}, 페이지: {page}, 페이지크기: {page_size}, OFFSET: {offset}")
 
         if not property_type or not sigungu_code or not umd_name:
             return jsonify({
@@ -2091,7 +2373,7 @@ def get_building_transactions():
                 FROM {table_name}
                 WHERE {where_clause}
                 ORDER BY "{col_names[10]}" DESC, CAST(NULLIF("{col_names[11]}", '') AS INTEGER) DESC NULLS LAST
-                LIMIT 500
+                LIMIT %s OFFSET %s
             '''
         elif property_type == '연립다세대':
             # 연립다세대: jibun(3), excluusear(5), dealyear(6), dealmonth(7), dealday(8),
@@ -2123,7 +2405,7 @@ def get_building_transactions():
                     LPAD(COALESCE(NULLIF("{col_names[6]}", ''), ''), 4, '0'),
                     LPAD(COALESCE(NULLIF("{col_names[7]}", ''), ''), 2, '0')
                 ) DESC, CAST(NULLIF("{col_names[8]}", '') AS INTEGER) DESC NULLS LAST
-                LIMIT 500
+                LIMIT %s OFFSET %s
             '''
         elif property_type == '오피스텔':
             # 오피스텔: jibun(4), excluusear(6), floor(7), buildyear(8), dealyear(9),
@@ -2172,7 +2454,7 @@ def get_building_transactions():
                     ORDER BY rent."{col_names[0]}", rent."{col_names[9]}" DESC, rent."{col_names[10]}" DESC, rent."{col_names[11]}" DESC
                 ) sub
                 ORDER BY dealyear_sort DESC, dealmonth_sort DESC, dealday_sort DESC
-                LIMIT 500
+                LIMIT %s OFFSET %s
             '''
         else:  # 아파트
             # 아파트: jibun(3), aptnm(4), excluusear(5), floor(6), buildyear(7),
@@ -2202,8 +2484,11 @@ def get_building_transactions():
                     LPAD(COALESCE(NULLIF("{col_names[8]}", ''), ''), 4, '0'),
                     LPAD(COALESCE(NULLIF("{col_names[9]}", ''), ''), 2, '0')
                 ) DESC, CAST(NULLIF("{col_names[10]}", '') AS INTEGER) DESC NULLS LAST
-                LIMIT 500
+                LIMIT %s OFFSET %s
             '''
+
+        # Add pagination parameters to query params
+        params.extend([page_size, offset])
 
         cursor.execute(query, params)
         results = cursor.fetchall()
@@ -2212,25 +2497,38 @@ def get_building_transactions():
         if len(results) > 0:
             print(f"[DEBUG] 첫 번째 결과: {results[0]}")
 
-        # 오피스텔의 경우 기준시가 계산 추가
+        # 오피스텔의 경우 기준시가 일괄 조회
         if table_name == 'officetel_rent_transactions':
-            for row in results:
-                # 오피스텔 기준시가 계산 (기준시가 데이터가 있을 경우에만)
-                if row.get('기준시가_고시가격') and row.get('기준시가_전용면적') and row.get('기준시가_공유면적'):
-                    try:
-                        unit_price = float(row['기준시가_고시가격'])
-                        exclusive_area = float(row['기준시가_전용면적'])
-                        shared_area = float(row['기준시가_공유면적'])
-                        total_area = exclusive_area + shared_area
-                        standard_price = unit_price * total_area
-                        threshold_126 = standard_price * 1.26
+            print(f"[DEBUG 모달오피스텔] 오피스텔 기준시가 일괄 조회 시작")
+            price_map = fetch_officetel_standard_prices_batch(cursor, sigungu_code, results)
 
-                        row['기준시가_면적당가격'] = unit_price
-                        row['기준시가_면적계'] = total_area
-                        row['기준시가_총액'] = standard_price
-                        row['기준시가_126퍼센트'] = threshold_126
-                    except (ValueError, TypeError):
+            print(f"[DEBUG 모달오피스텔] price_map 크기: {len(price_map)}건")
+
+            # 결과 매핑
+            matched_count = 0
+            for row in results:
+                jibun = row.get('지번')
+                floor = row.get('층')
+                area = row.get('면적')
+
+                if jibun and floor is not None and area:
+                    try:
+                        area_rounded = round(float(area), 2)
+                        key = (jibun, int(floor), area_rounded)
+                        if key in price_map:
+                            data = price_map[key]
+                            row['기준시가_면적당가격'] = data['unit_price']
+                            row['기준시가_전용면적'] = data['exclusive_area']
+                            row['기준시가_공유면적'] = data['shared_area']
+                            row['기준시가_면적계'] = data['total_area']
+                            row['기준시가_총액'] = data['standard_price']
+                            row['기준시가_126퍼센트'] = data['threshold_126']
+                            matched_count += 1
+                    except Exception as e:
+                        print(f"[DEBUG 모달오피스텔] 매핑 예외: {e}")
                         pass
+
+            print(f"[DEBUG 모달오피스텔] 매칭 완료: {matched_count}/{len(results)}건")
 
         # 아파트/연립다세대의 경우 공동주택가격 조회 추가 (일괄 조회로 최적화)
         if property_type in ['아파트', '연립다세대']:
@@ -2240,7 +2538,13 @@ def get_building_transactions():
             # N+1 쿼리 문제 해결: 한 번의 쿼리로 모든 공동주택가격 조회
             price_map = fetch_apartment_prices_batch(cursor_apt, sigungu_code, umd_name, results)
 
+            print(f"[DEBUG 모달매핑] price_map 크기: {len(price_map)}건")
+            if price_map:
+                sample_key = list(price_map.keys())[0]
+                print(f"[DEBUG 모달매핑] price_map 샘플 키: {sample_key}")
+
             # 결과 매핑
+            matched_count = 0
             for row in results:
                 jibun = row.get('지번')
                 floor = row.get('층')
@@ -2248,12 +2552,21 @@ def get_building_transactions():
 
                 if jibun and floor is not None and area:
                     try:
-                        key = (jibun, int(floor), float(area))
+                        # 면적을 2자리로 반올림하여 키 생성 (batch 함수와 동일하게)
+                        area_rounded = round(float(area), 2)
+                        key = (jibun, int(floor), area_rounded)
+
                         if key in price_map:
                             row['공동주택가격'] = price_map[key]['price']
                             row['공동주택가격_126퍼센트'] = price_map[key]['threshold_126']
-                    except:
+                            matched_count += 1
+                        else:
+                            print(f"[DEBUG 모달매핑] 매칭 실패 - 키: {key}, 지번={jibun}, 층={floor}, 면적={area}")
+                    except Exception as e:
+                        print(f"[DEBUG 모달매핑] 예외 발생: {e}")
                         pass
+
+            print(f"[DEBUG 모달매핑] 매칭 완료: {matched_count}/{len(results)}건")
 
             cursor_apt.close()
 
@@ -2288,10 +2601,14 @@ def get_building_transactions():
         cursor.close()
         # 연결은 재사용을 위해 닫지 않음
 
+        # has_more 판단: page_size만큼 조회되었다면 더 있을 가능성이 있음
+        has_more = len(results) == page_size
+
         return jsonify({
             'success': True,
             'data': results,
             'count': len(results),
+            'has_more': has_more,
             'building_name': building_name,
             'address': f"{umd_name} {jibun}" if jibun else umd_name
         })
