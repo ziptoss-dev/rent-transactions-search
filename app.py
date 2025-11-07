@@ -2938,12 +2938,6 @@ def get_unit_info():
 @app.route('/api/owner-info', methods=['POST'])
 def get_owner_info():
     """VWorld API를 통한 토지소유정보 조회"""
-    # 임시로 기능 비활성화 (502 에러 해결을 위해)
-    return jsonify({
-        'error': '소유자 정보 조회 기능이 일시적으로 비활성화되었습니다.',
-        'message': 'API 안정화 작업 중입니다.'
-    }), 503
-
     try:
         data = request.get_json()
         if not data:
