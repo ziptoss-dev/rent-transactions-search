@@ -2944,9 +2944,8 @@ def get_owner_info():
         umd_name = data.get('umd_name')  # 읍면동명
         jibun = data.get('jibun')  # 지번 (예: "119-3")
 
-        # 디버그 로그를 파일에 기록
-        with open('owner_debug.log', 'a', encoding='utf-8') as f:
-            f.write(f"\n[DEBUG] 소유자 정보 조회 요청 - 시군구:{sgg_code}, 읍면동:{umd_name}, 지번:{jibun}\n")
+        # 디버그 로그 출력
+        print(f"[DEBUG] 소유자 정보 조회 요청 - 시군구:{sgg_code}, 읍면동:{umd_name}, 지번:{jibun}")
 
         # 필수 파라미터 확인
         if not all([sgg_code, umd_name, jibun]):
@@ -2960,8 +2959,7 @@ def get_owner_info():
                 break
 
         if not umd_code:
-            with open('owner_debug.log', 'a', encoding='utf-8') as f:
-                f.write(f"[ERROR] 법정동코드를 찾을 수 없습니다 - 시군구:{sgg_code}, 읍면동:{umd_name}\n")
+            print(f"[ERROR] 법정동코드를 찾을 수 없습니다 - 시군구:{sgg_code}, 읍면동:{umd_name}")
             return jsonify({'error': '법정동코드를 찾을 수 없습니다.'}), 404
 
         # 지번 파싱: "119-3" → 본번 "0119", 부번 "0003"
@@ -2972,8 +2970,7 @@ def get_owner_info():
         # PNU 생성: 시군구코드(5) + 법정동코드(5) + 1 + 본번(4) + 부번(4)
         pnu = f"{sgg_code}{umd_code}1{bon}{bu}"
 
-        with open('owner_debug.log', 'a', encoding='utf-8') as f:
-            f.write(f"[DEBUG] 법정동코드: {umd_code}, PNU: {pnu}\n")
+        print(f"[DEBUG] 법정동코드: {umd_code}, PNU: {pnu}")
 
         # VWorld API 호출
         api_key = os.getenv('VWORLD_API_KEY')
@@ -2990,22 +2987,18 @@ def get_owner_info():
             'domain': 'http://127.0.0.1'
         }
 
-        with open('owner_debug.log', 'a', encoding='utf-8') as f:
-            f.write(f"[DEBUG] VWorld API 호출 중... params: {params}\n")
+        print(f"[DEBUG] VWorld API 호출 중... params: {params}")
         response = requests.get(api_url, params=params, timeout=10)
 
-        with open('owner_debug.log', 'a', encoding='utf-8') as f:
-            f.write(f"[DEBUG] VWorld API 응답 상태: {response.status_code}\n")
+        print(f"[DEBUG] VWorld API 응답 상태: {response.status_code}")
 
         if response.status_code != 200:
-            with open('owner_debug.log', 'a', encoding='utf-8') as f:
-                f.write(f"[ERROR] VWorld API 호출 실패: {response.status_code}\n")
+            print(f"[ERROR] VWorld API 호출 실패: {response.status_code}")
             return jsonify({'error': f'API 호출 실패: {response.status_code}'}), 500
 
         # XML 파싱
         try:
-            with open('owner_debug.log', 'a', encoding='utf-8') as f:
-                f.write(f"[DEBUG] 응답 내용 (처음 500자): {response.content[:500]}\n")
+            print(f"[DEBUG] 응답 내용 (처음 500자): {response.content[:500]}")
 
             root = ET.fromstring(response.content)
 
@@ -3013,12 +3006,10 @@ def get_owner_info():
             # possessions가 아니라 field 태그를 찾아야 함
             fields = root.findall('.//field')
 
-            with open('owner_debug.log', 'a', encoding='utf-8') as f:
-                f.write(f"[DEBUG] field 태그 개수: {len(fields)}\n")
+            print(f"[DEBUG] field 태그 개수: {len(fields)}")
 
             if not fields:
-                with open('owner_debug.log', 'a', encoding='utf-8') as f:
-                    f.write(f"[DEBUG] 소유자 정보 없음\n")
+                print(f"[DEBUG] 소유자 정보 없음")
                 return jsonify({'data': {}, 'message': '소유자 정보가 없습니다.'})
 
             # 결과 파싱
