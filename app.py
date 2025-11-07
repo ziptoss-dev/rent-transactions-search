@@ -2984,7 +2984,7 @@ def get_owner_info():
             'numOfRows': 1000,
             'pageNo': 1,
             'key': api_key,
-            'domain': 'https://ziptoss.com'
+            'domain': 'http://127.0.0.1'
         }
 
         print(f"[DEBUG] VWorld API 호출 중... params: {params}")
