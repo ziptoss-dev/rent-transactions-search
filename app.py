@@ -117,6 +117,54 @@ def load_region_codes():
 # 지역 코드 로드
 REGIONS = load_region_codes()
 
+# 건물명 캐시 로드 (자동완성 성능 최적화)
+def load_building_cache():
+    """건물명 목록을 메모리에 캐싱 (자동완성 성능 향상)"""
+    print("건물명 캐시 로딩 중...")
+    cache = {}  # {umd_name: [(sgg_code, jibun, building_name, property_type), ...]}
+
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    tables = [
+        ('apt_rent_transactions', 'aptnm', '아파트'),
+        ('villa_rent_transactions', 'mhousename', '연립다세대'),
+        ('officetel_rent_transactions', 'offinm', '오피스텔'),
+        ('dagagu_rent_transactions', 'NULL', '단독다가구')
+    ]
+
+    for table_name, building_col, property_type in tables:
+        print(f"  - {property_type} 테이블 로딩 중...")
+        query = f"""
+            SELECT DISTINCT sggcd, umdnm, jibun, {building_col} as building_name
+            FROM {table_name}
+            WHERE umdnm IS NOT NULL AND jibun IS NOT NULL
+        """
+        cursor.execute(query)
+
+        for row in cursor.fetchall():
+            umd_name = row['umdnm']
+            if umd_name not in cache:
+                cache[umd_name] = []
+
+            cache[umd_name].append({
+                'sgg_code': row['sggcd'],
+                'jibun': row['jibun'],
+                'building_name': row['building_name'],
+                'property_type': property_type
+            })
+
+    cursor.close()
+
+    # 각 읍면동별로 지번 순으로 정렬
+    for umd_name in cache:
+        cache[umd_name].sort(key=lambda x: x['jibun'])
+
+    print(f"건물명 캐시 로딩 완료: {len(cache)}개 읍면동, {sum(len(v) for v in cache.values())}건 데이터")
+    return cache
+
+BUILDING_CACHE = load_building_cache()
+
 def abbreviate_sido_name(sido_name):
     """시도명을 2글자로 축약"""
     abbreviations = {
@@ -2411,49 +2459,31 @@ def get_building_transactions():
             # 오피스텔: jibun(4), excluusear(6), floor(7), buildyear(8), dealyear(9),
             # dealmonth(10), dealday(11), deposit(12), monthlyrent(13), contracttype(14),
             # contractterm(15), predeposit(16), premonthlyrent(17), userrright(18)
+            # 성능 최적화: LEFT JOIN 제거, batch fetch로 기준시가 조회
             query = f'''
-                SELECT * FROM (
-                    SELECT DISTINCT ON (rent."{col_names[0]}")
-                        rent."{col_names[1]}" as 시군구코드,
-                        rent."{col_names[3]}" as 읍면동리,
-                        COALESCE(NULLIF(rent."{col_names[4]}", ''), '') as 지번,
-                        COALESCE(NULLIF(rent."{col_names[7]}", ''), '') as 층,
-                        COALESCE(NULLIF(rent."{col_names[6]}", ''), '') as 면적,
-                        COALESCE(NULLIF(rent."{col_names[12]}", ''), '') as 보증금,
-                        COALESCE(NULLIF(rent."{col_names[13]}", ''), '') as 월세,
-                        CONCAT(
-                            LPAD(COALESCE(NULLIF(rent."{col_names[9]}", ''), ''), 4, '0'),
-                            LPAD(COALESCE(NULLIF(rent."{col_names[10]}", ''), ''), 2, '0')
-                        ) as 계약년월,
-                        COALESCE(NULLIF(rent."{col_names[11]}", ''), '') as 계약일,
-                        COALESCE(NULLIF(rent."{col_names[8]}", ''), '') as 건축년도,
-                        COALESCE(NULLIF(rent."{col_names[14]}", ''), '') as 계약구분,
-                        COALESCE(NULLIF(rent."{col_names[15]}", ''), '') as 계약기간,
-                        COALESCE(NULLIF(rent."{col_names[16]}", ''), '') as 종전계약보증금,
-                        COALESCE(NULLIF(rent."{col_names[17]}", ''), '') as 종전계약월세,
-                        COALESCE(NULLIF(rent."{col_names[18]}", ''), '') as 갱신요구권사용,
-                        sp.고시가격 as 기준시가_고시가격,
-                        sp.전용면적 as 기준시가_전용면적,
-                        sp.공유면적 as 기준시가_공유면적,
-                        rent."{col_names[9]}" as dealyear_sort,
-                        rent."{col_names[10]}" as dealmonth_sort,
-                        rent."{col_names[11]}" as dealday_sort
-                    FROM {table_name} rent
-                    LEFT JOIN officetel_standard_price sp ON
-                        LEFT(sp.법정동코드, 5) = rent."{col_names[1]}"
-                        AND sp.번지 ~ '^[0-9]+$' AND sp.번지::INTEGER = SPLIT_PART(rent."{col_names[4]}", '-', 1)::INTEGER
-                        AND sp.호 ~ '^[0-9]+$' AND sp.호::INTEGER = NULLIF(SPLIT_PART(rent."{col_names[4]}", '-', 2), '')::INTEGER
-                        AND sp.상가건물층주소 ~ '^[0-9]+$'
-                        AND (
-                            (rent."{col_names[7]}"::INTEGER < 0 AND sp.건물층구분코드 = '지하층' AND sp.상가건물층주소::INTEGER = ABS(rent."{col_names[7]}"::INTEGER))
-                            OR
-                            (rent."{col_names[7]}"::INTEGER >= 0 AND sp.건물층구분코드 = '지상층' AND sp.상가건물층주소::INTEGER = rent."{col_names[7]}"::INTEGER)
-                        )
-                        AND sp.전용면적::FLOAT = rent."{col_names[6]}"::FLOAT
-                    WHERE {where_clause}
-                    ORDER BY rent."{col_names[0]}", rent."{col_names[9]}" DESC, rent."{col_names[10]}" DESC, rent."{col_names[11]}" DESC
-                ) sub
-                ORDER BY dealyear_sort DESC, dealmonth_sort DESC, dealday_sort DESC
+                SELECT
+                    COALESCE(NULLIF("{col_names[4]}", ''), '') as 지번,
+                    COALESCE(NULLIF("{col_names[7]}", ''), '') as 층,
+                    COALESCE(NULLIF("{col_names[6]}", ''), '') as 면적,
+                    COALESCE(NULLIF("{col_names[12]}", ''), '') as 보증금,
+                    COALESCE(NULLIF("{col_names[13]}", ''), '') as 월세,
+                    CONCAT(
+                        LPAD(COALESCE(NULLIF("{col_names[9]}", ''), ''), 4, '0'),
+                        LPAD(COALESCE(NULLIF("{col_names[10]}", ''), ''), 2, '0')
+                    ) as 계약년월,
+                    COALESCE(NULLIF("{col_names[11]}", ''), '') as 계약일,
+                    COALESCE(NULLIF("{col_names[8]}", ''), '') as 건축년도,
+                    COALESCE(NULLIF("{col_names[14]}", ''), '') as 계약구분,
+                    COALESCE(NULLIF("{col_names[15]}", ''), '') as 계약기간,
+                    COALESCE(NULLIF("{col_names[16]}", ''), '') as 종전계약보증금,
+                    COALESCE(NULLIF("{col_names[17]}", ''), '') as 종전계약월세,
+                    COALESCE(NULLIF("{col_names[18]}", ''), '') as 갱신요구권사용
+                FROM {table_name}
+                WHERE {where_clause}
+                ORDER BY CONCAT(
+                    LPAD(COALESCE(NULLIF("{col_names[9]}", ''), ''), 4, '0'),
+                    LPAD(COALESCE(NULLIF("{col_names[10]}", ''), ''), 2, '0')
+                ) DESC, CAST(NULLIF("{col_names[11]}", '') AS INTEGER) DESC NULLS LAST
                 LIMIT %s OFFSET %s
             '''
         else:  # 아파트
@@ -2625,7 +2655,7 @@ def get_building_transactions():
 
 @app.route('/api/search-building', methods=['GET'])
 def search_building():
-    """건물 검색 (읍면동+지번 자동완성)"""
+    """건물 검색 (읍면동+지번 자동완성) - 캐시 사용"""
     try:
         query = request.args.get('q', '').strip()
 
@@ -2649,46 +2679,27 @@ def search_building():
         umd_name = match.group(1).strip()  # 정확한 읍면동명
         jibun_search = match.group(2).strip()  # 지번 검색어
 
-        conn = get_db_connection()
-        cursor = conn.cursor()
-
+        # 캐시에서 검색 (DB 쿼리 대신)
         buildings = []
         seen = set()  # 중복 제거용
         MAX_RESULTS = 12  # 최대 결과 수
 
-        # 성능 최적화: 순차적 검색으로 변경 (충분한 결과 있으면 다음 테이블 건너뛰기)
-        # 각 테이블에서 LIMIT 3으로 줄여서 빠르게 검색
-        tables = [
-            ('apt_rent_transactions', 'aptnm', '아파트'),
-            ('villa_rent_transactions', 'mhousename', '연립다세대'),
-            ('officetel_rent_transactions', 'offinm', '오피스텔'),
-            ('dagagu_rent_transactions', 'NULL', '단독다가구')
-        ]
+        # 캐시에서 해당 읍면동의 건물 목록 가져오기
+        cached_buildings = BUILDING_CACHE.get(umd_name, [])
 
-        for table_name, building_col, property_type in tables:
+        # 지번으로 필터링
+        for building in cached_buildings:
             if len(buildings) >= MAX_RESULTS:
-                break  # 충분한 결과 확보
+                break
 
-            query = f"""
-                SELECT DISTINCT
-                    sggcd as sgg_code,
-                    umdnm as umd_name,
-                    jibun,
-                    {building_col} as building_name,
-                    %s as property_type
-                FROM {table_name}
-                WHERE umdnm = %s AND jibun LIKE %s
-                LIMIT 3
-            """
-
-            cursor.execute(query, (property_type, umd_name, f'{jibun_search}%'))
-
-            for row in cursor.fetchall():
-                key = (row['sgg_code'], row['umd_name'], row['jibun'], row['building_name'])
+            # 지번이 검색어로 시작하는지 확인
+            if building['jibun'].startswith(jibun_search):
+                key = (building['sgg_code'], umd_name, building['jibun'], building['building_name'])
                 if key not in seen:
                     seen.add(key)
+
                     # 시도/시군구 정보 추출
-                    sgg_code = row['sgg_code']
+                    sgg_code = building['sgg_code']
                     sido = ''
                     sigungu = ''
                     if sgg_code and sgg_code in REGIONS['sigungu']:
@@ -2697,18 +2708,15 @@ def search_building():
                         sigungu = REGIONS['sigungu'][sgg_code]['name']
 
                     buildings.append({
-                        'sgg_code': row['sgg_code'],
-                        'umd_name': row['umd_name'],
-                        'jibun': row['jibun'],
-                        'building_name': row['building_name'],
-                        'property_type': row['property_type'],
+                        'sgg_code': building['sgg_code'],
+                        'umd_name': umd_name,
+                        'jibun': building['jibun'],
+                        'building_name': building['building_name'],
+                        'property_type': building['property_type'],
                         'sido': sido,
                         'sigungu': sigungu,
-                        'full_address': f"{row['umd_name']} {row['jibun']} {row['building_name'] or ''}"
+                        'full_address': f"{umd_name} {building['jibun']} {building['building_name'] or ''}"
                     })
-
-        cursor.close()
-        # 연결은 재사용을 위해 닫지 않음
 
         return jsonify({
             'success': True,
