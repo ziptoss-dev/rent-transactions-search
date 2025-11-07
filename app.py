@@ -2938,8 +2938,17 @@ def get_unit_info():
 @app.route('/api/owner-info', methods=['POST'])
 def get_owner_info():
     """VWorld API를 통한 토지소유정보 조회"""
+    # 임시로 기능 비활성화 (502 에러 해결을 위해)
+    return jsonify({
+        'error': '소유자 정보 조회 기능이 일시적으로 비활성화되었습니다.',
+        'message': 'API 안정화 작업 중입니다.'
+    }), 503
+
     try:
         data = request.get_json()
+        if not data:
+            return jsonify({'error': 'JSON 데이터가 필요합니다.'}), 400
+
         sgg_code = data.get('sgg_code')  # 시군구코드 (5자리)
         umd_name = data.get('umd_name')  # 읍면동명
         jibun = data.get('jibun')  # 지번 (예: "119-3")
@@ -2952,9 +2961,13 @@ def get_owner_info():
             return jsonify({'error': '필수 파라미터가 누락되었습니다.'}), 400
 
         # REGIONS 캐시에서 법정동코드 찾기
+        if not REGIONS or 'umd' not in REGIONS:
+            print(f"[ERROR] REGIONS 캐시가 초기화되지 않았습니다.")
+            return jsonify({'error': '지역 코드 정보를 불러올 수 없습니다.'}), 500
+
         umd_code = None
         for full_code, region_info in REGIONS['umd'].items():
-            if region_info['sgg_code'] == sgg_code and region_info['umd_name'] == umd_name:
+            if region_info.get('sgg_code') == sgg_code and region_info.get('umd_name') == umd_name:
                 umd_code = full_code[5:]  # 뒤 5자리가 법정동코드
                 break
 

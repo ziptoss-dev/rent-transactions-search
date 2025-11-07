@@ -1443,8 +1443,26 @@ function initBuildingSearch() {
 function searchBuildings(query) {
     const resultsContainer = document.getElementById('building-search-results');
 
-    // 로딩 표시
-    resultsContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #64748b;">검색 중...</div>';
+    // 로딩 스피너 표시
+    resultsContainer.innerHTML = `
+        <div style="text-align: center; padding: 40px;">
+            <div class="spinner" style="
+                border: 4px solid rgba(255, 255, 255, 0.3);
+                border-top: 4px solid white;
+                border-radius: 50%;
+                width: 40px;
+                height: 40px;
+                animation: spin 1s linear infinite;
+                margin: 0 auto;
+            "></div>
+            <style>
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            </style>
+        </div>
+    `;
     resultsContainer.style.display = 'block';
 
     // API 호출
