@@ -1027,9 +1027,121 @@ def api_umd():
         })
 
 
+def fetch_apartment_prices_batch(cursor, sggcd, umdnm, rows):
+    """
+    여러 행의 공동주택가격을 일괄 조회 (N+1 쿼리 문제 해결)
+    Returns: dict mapping (지번, 층, 면적) -> {'price': ..., 'threshold_126': ...}
+    """
+    if not rows:
+        return {}
+
+    # 법정동코드 10자리 찾기
+    bjdcd_10 = None
+    for code, info in REGIONS['umd'].items():
+        if info['sgg_code'] == sggcd and info['umd_name'] == umdnm:
+            bjdcd_10 = code
+            break
+
+    if not bjdcd_10:
+        return {}
+
+    # 모든 row의 조건 수집
+    conditions = []
+    for row in rows:
+        jibun = row.get('지번')
+        floor = row.get('층')
+        excluusear = row.get('면적')
+
+        if not all([jibun, floor is not None, excluusear]):
+            continue
+
+        # 지번 파싱
+        parts = jibun.split('-')
+        bon = parts[0].strip()
+        bu = parts[1].strip() if len(parts) > 1 else '0'
+
+        # 층 변환
+        try:
+            floor_int = int(floor)
+            floor_str = str(floor_int)
+        except:
+            continue
+
+        # 면적 변환
+        try:
+            area_float = round(float(excluusear), 2)
+        except:
+            continue
+
+        conditions.append({
+            '지번': jibun,
+            '층': floor,
+            '면적': excluusear,
+            'bon': bon,
+            'bu': bu,
+            'floor_str': floor_str,
+            'area_float': area_float
+        })
+
+    if not conditions:
+        return {}
+
+    # WHERE 절 생성 (OR로 연결)
+    where_parts = []
+    params = [bjdcd_10]
+
+    for cond in conditions:
+        where_parts.append(
+            '("본번" = %s AND "부번" = %s AND "층번호" = %s AND "공동주택전유면적"::FLOAT = %s)'
+        )
+        params.extend([cond['bon'], cond['bu'], cond['floor_str'], cond['area_float']])
+
+    query = f"""
+        SELECT DISTINCT
+            "본번", "부번", "층번호", "공동주택전유면적"::FLOAT as 면적, "공시가격"
+        FROM bldg_apartment_price
+        WHERE "법정동코드" = %s
+          AND ({' OR '.join(where_parts)})
+    """
+
+    cursor.execute(query, params)
+    db_results = cursor.fetchall()
+
+    # 결과를 딕셔너리로 매핑
+    price_map = {}
+    for db_row in db_results:
+        # 원래 지번 형태로 복원
+        jibun_key = db_row['본번'] if db_row['부번'] == '0' else f"{db_row['본번']}-{db_row['부번']}"
+        floor_key = int(db_row['층번호'])
+        area_key = float(db_row['면적'])
+
+        key = (jibun_key, floor_key, area_key)
+
+        if key not in price_map:
+            price_map[key] = []
+
+        try:
+            price = float(db_row['공시가격'])
+            price_map[key].append(price)
+        except:
+            continue
+
+    # 평균 계산 및 126% 임계값
+    result_map = {}
+    for key, prices in price_map.items():
+        if prices:
+            avg_price = sum(prices) / len(prices)
+            result_map[key] = {
+                'price': int(avg_price),
+                'threshold_126': int(avg_price * 1.26)
+            }
+
+    return result_map
+
+
 def fetch_apartment_price_for_row(cursor, sggcd, umdnm, jibun, floor, excluusear, dong_no=None):
     """
-    단일 행의 공동주택가격 정보를 조회하는 헬퍼 함수
+    단일 행의 공동주택가격 정보를 조회하는 헬퍼 함수 (레거시, 호환성 유지)
     Returns: dict with 'price', 'threshold_126' keys or None
     """
     try:
@@ -1855,18 +1967,18 @@ def get_building_transactions():
     try:
         # GET과 POST 모두 지원
         if request.method == 'GET':
-            building_name = request.args.get('building_name', '').strip()
-            property_type = request.args.get('property_type', '').strip()
-            sigungu_code = request.args.get('sgg_code', '').strip()
-            umd_name = request.args.get('umd_name', '').strip()
-            jibun = request.args.get('jibun', '').strip()
+            building_name = (request.args.get('building_name') or '').strip()
+            property_type = (request.args.get('property_type') or '').strip()
+            sigungu_code = (request.args.get('sgg_code') or '').strip()
+            umd_name = (request.args.get('umd_name') or '').strip()
+            jibun = (request.args.get('jibun') or '').strip()
         else:
             data = request.get_json()
-            building_name = data.get('building_name', '').strip()
-            property_type = data.get('property_type', '').strip()
-            sigungu_code = data.get('sigungu_code', '').strip()
-            umd_name = data.get('umd_name', '').strip()
-            jibun = data.get('jibun', '').strip()
+            building_name = (data.get('building_name') or '').strip()
+            property_type = (data.get('property_type') or '').strip()
+            sigungu_code = (data.get('sigungu_code') or '').strip()
+            umd_name = (data.get('umd_name') or '').strip()
+            jibun = (data.get('jibun') or '').strip()
 
         # 디버깅 로그
         print(f"[DEBUG] 모달 조회 요청 - 주택유형: {property_type}, 시군구코드: {sigungu_code}, 읍면동: {umd_name}, 지번: {jibun}, 건물명: {building_name}")
@@ -2120,26 +2232,30 @@ def get_building_transactions():
                     except (ValueError, TypeError):
                         pass
 
-        # 아파트/연립다세대의 경우 공동주택가격 조회 추가
+        # 아파트/연립다세대의 경우 공동주택가격 조회 추가 (일괄 조회로 최적화)
         if property_type in ['아파트', '연립다세대']:
-            conn_apt = psycopg.connect(**DB_CONFIG, row_factory=dict_row)
+            conn_apt = get_db_connection()
             cursor_apt = conn_apt.cursor()
 
+            # N+1 쿼리 문제 해결: 한 번의 쿼리로 모든 공동주택가격 조회
+            price_map = fetch_apartment_prices_batch(cursor_apt, sigungu_code, umd_name, results)
+
+            # 결과 매핑
             for row in results:
-                apt_price = fetch_apartment_price_for_row(
-                    cursor_apt,
-                    sigungu_code,
-                    umd_name,
-                    row.get('지번'),
-                    row.get('층'),
-                    row.get('면적')
-                )
-                if apt_price:
-                    row['공동주택가격'] = apt_price['price']
-                    row['공동주택가격_126퍼센트'] = apt_price['threshold_126']
+                jibun = row.get('지번')
+                floor = row.get('층')
+                area = row.get('면적')
+
+                if jibun and floor is not None and area:
+                    try:
+                        key = (jibun, int(floor), float(area))
+                        if key in price_map:
+                            row['공동주택가격'] = price_map[key]['price']
+                            row['공동주택가격_126퍼센트'] = price_map[key]['threshold_126']
+                    except:
+                        pass
 
             cursor_apt.close()
-            conn_apt.close()
 
         # 호실 정보 추가 (아파트, 연립다세대, 오피스텔에만 적용)
         if property_type in ['아파트', '연립다세대', '오피스텔']:
