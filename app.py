@@ -2988,41 +2988,63 @@ def get_owner_info():
         params = {
             'pnu': pnu,
             'format': 'xml',
-            'numOfRows': 1000,
+            'numOfRows': 100,  # 1000 → 100으로 축소 (응답 크기 감소)
             'pageNo': 1,
             'key': api_key,
             'domain': 'http://127.0.0.1'
         }
 
-        # HTTP 헤더 설정 (User-Agent 추가로 API 서버 호환성 개선)
+        # HTTP 헤더 설정
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/xml, text/xml, */*',
-            'Connection': 'close'  # Keep-alive 비활성화로 연결 문제 방지
+            'Accept': 'application/xml, text/xml, */*'
         }
 
-        print(f"[DEBUG] VWorld API 호출 중... PNU: {pnu}")
+        print(f"[DEBUG] VWorld API 호출 시작 - PNU: {pnu}")
 
-        try:
-            # 타임아웃: (connect timeout, read timeout)
-            # Vercel 서버리스는 10초 제한이므로 총 8초로 설정
-            response = requests.get(
-                api_url,
-                params=params,
-                headers=headers,
-                timeout=(3, 8)  # connect 3초, read 8초
-            )
-        except requests.Timeout:
-            print(f"[ERROR] VWorld API 타임아웃")
-            return jsonify({'error': 'VWorld API 응답 시간 초과'}), 504
-        except requests.ConnectionError as e:
-            print(f"[ERROR] VWorld API 연결 오류: {str(e)}")
-            return jsonify({'error': 'VWorld API 연결 실패. 잠시 후 다시 시도해주세요.'}), 503
-        except requests.RequestException as e:
-            print(f"[ERROR] VWorld API 요청 실패: {str(e)}")
-            import traceback
-            traceback.print_exc()
-            return jsonify({'error': f'API 요청 실패: {str(e)}'}), 500
+        # 재시도 로직 (최대 2회)
+        max_retries = 2
+        last_error = None
+
+        for attempt in range(max_retries):
+            try:
+                print(f"[DEBUG] VWorld API 시도 {attempt + 1}/{max_retries}")
+
+                # 짧은 타임아웃으로 빠르게 실패하고 재시도
+                response = requests.get(
+                    api_url,
+                    params=params,
+                    headers=headers,
+                    timeout=(2, 5)  # connect 2초, read 5초
+                )
+
+                # 성공하면 루프 탈출
+                print(f"[DEBUG] VWorld API 응답 성공 (시도 {attempt + 1})")
+                break
+
+            except requests.Timeout as e:
+                last_error = e
+                print(f"[ERROR] VWorld API 타임아웃 (시도 {attempt + 1}): {str(e)}")
+                if attempt == max_retries - 1:
+                    return jsonify({'error': 'VWorld API 응답 시간 초과'}), 504
+
+            except requests.ConnectionError as e:
+                last_error = e
+                print(f"[ERROR] VWorld API 연결 오류 (시도 {attempt + 1}): {str(e)}")
+                if attempt == max_retries - 1:
+                    # Vercel 환경에서 VWorld API 접근 불가 - 기능 비활성화
+                    return jsonify({
+                        'error': '소유자 정보를 불러올 수 없습니다.',
+                        'message': '현재 서버 환경에서 VWorld API에 접근할 수 없습니다.'
+                    }), 503
+
+            except requests.RequestException as e:
+                last_error = e
+                print(f"[ERROR] VWorld API 요청 실패 (시도 {attempt + 1}): {str(e)}")
+                if attempt == max_retries - 1:
+                    import traceback
+                    traceback.print_exc()
+                    return jsonify({'error': f'API 요청 실패: {str(e)}'}), 500
 
         print(f"[DEBUG] VWorld API 응답 상태: {response.status_code}")
 
