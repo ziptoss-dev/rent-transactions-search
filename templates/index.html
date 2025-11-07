@@ -7,9 +7,6 @@
     <link rel="icon" href="data:;base64,iVBORw0KGgo=">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/table-fix.css') }}">
-    <style>
-        /* 테이블 컬럼 너비는 style.css에서 관리 */
-    </style>
 </head>
 <body>
     <div class="container">
@@ -164,7 +161,7 @@
                             <th>시군구</th>
                             <th>읍면동리</th>
                             <th>지번</th>
-                            <th>동·호명<span class="unit-info-icon">?</span></th>
+                            <th>추정 호실 후보군<span class="unit-info-icon">?</span></th>
                             <th>건물명</th>
                             <th>층</th>
                             <th>면적</th>
@@ -196,46 +193,67 @@
         <div class="modal-content">
             <div class="modal-header">
                 <h3 id="modal-building-name">건물명</h3>
+                <a id="gwanpe-link" href="#" target="_blank" class="gwanpe-btn">관페 바로가기</a>
                 <span class="modal-close">&times;</span>
             </div>
+
+            <!-- 탭 네비게이션 -->
+            <div class="modal-tabs">
+                <button class="tab-btn active" data-tab="transactions">실거래가</button>
+                <button class="tab-btn" data-tab="owner-info">소유자 정보</button>
+            </div>
+
             <div class="modal-body">
-                <div class="modal-loading" id="modal-loading" style="display: none;">
-                    <div class="spinner"></div>
-                    <p>조회 중...</p>
+                <!-- 실거래가 탭 내용 -->
+                <div id="tab-transactions" class="tab-content active">
+                    <div class="modal-loading" id="modal-loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>조회 중...</p>
+                    </div>
+                    <div class="modal-error" id="modal-error" style="display: none;"></div>
+                    <div class="modal-filter-container" style="margin-bottom: 15px;">
+                        <label style="display: inline-flex; align-items: center; cursor: pointer;">
+                            <input type="checkbox" id="future-listings-only" style="margin-right: 8px; cursor: pointer;">
+                            <span>앞으로 매물로 나올만한 거래 건만 보기</span>
+                        </label>
+                    </div>
+                    <div class="modal-table-container">
+                        <table id="modal-results-table">
+                            <thead>
+                                <tr>
+                                    <th style="width: 80px;">계약년월</th>
+                                    <th style="width: 50px;">계약일</th>
+                                    <th style="width: 90px;">추정 호실 후보군<span class="unit-info-icon">?</span></th>
+                                    <th style="width: 50px;">층</th>
+                                    <th style="width: 70px;">면적</th>
+                                    <th style="width: 45px;">구분</th>
+                                    <th style="width: 80px;">보증금</th>
+                                    <th style="width: 60px;">월세</th>
+                                    <th style="width: 70px;">건축년도</th>
+                                    <th style="width: 70px;">계약구분</th>
+                                    <th style="width: 130px;">계약기간</th>
+                                    <th style="width: 80px;">종전보증금</th>
+                                    <th style="width: 70px;">종전월세</th>
+                                    <th style="width: 80px;">갱신권사용</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td colspan="14" class="no-data">건물명을 클릭하여 해당 건물의 실거래가를 조회하세요</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </div>
-                <div class="modal-error" id="modal-error" style="display: none;"></div>
-                <div class="modal-filter-container" style="margin-bottom: 15px;">
-                    <label style="display: inline-flex; align-items: center; cursor: pointer;">
-                        <input type="checkbox" id="future-listings-only" style="margin-right: 8px; cursor: pointer;">
-                        <span>앞으로 매물로 나올만한 거래 건만 보기</span>
-                    </label>
-                </div>
-                <div class="modal-table-container">
-                    <table id="modal-results-table">
-                        <thead>
-                            <tr>
-                                <th style="width: 80px;">계약년월</th>
-                                <th style="width: 50px;">계약일</th>
-                                <th style="width: 90px;">동·호명<span class="unit-info-icon">?</span></th>
-                                <th style="width: 50px;">층</th>
-                                <th style="width: 70px;">면적</th>
-                                <th style="width: 45px;">구분</th>
-                                <th style="width: 80px;">보증금</th>
-                                <th style="width: 60px;">월세</th>
-                                <th style="width: 70px;">건축년도</th>
-                                <th style="width: 70px;">계약구분</th>
-                                <th style="width: 130px;">계약기간</th>
-                                <th style="width: 80px;">종전보증금</th>
-                                <th style="width: 70px;">종전월세</th>
-                                <th style="width: 80px;">갱신권사용</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <tr>
-                                <td colspan="14" class="no-data">건물명을 클릭하여 해당 건물의 실거래가를 조회하세요</td>
-                            </tr>
-                        </tbody>
-                    </table>
+
+                <!-- 소유자 정보 탭 내용 -->
+                <div id="tab-owner-info" class="tab-content" style="display: none;">
+                    <div class="modal-loading" id="owner-loading" style="display: none;">
+                        <div class="spinner"></div>
+                        <p>소유자 정보 조회 중...</p>
+                    </div>
+                    <div class="modal-error" id="owner-error" style="display: none;"></div>
+                    <div id="owner-info-content"></div>
                 </div>
             </div>
         </div>

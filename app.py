@@ -4,11 +4,34 @@ from psycopg.rows import dict_row
 import os
 from dotenv import load_dotenv
 import csv
+import requests
+import xml.etree.ElementTree as ET
+import sys
+import io
+
+# Windows 콘솔 인코딩 문제 해결
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 # 환경 변수 로드
 load_dotenv()
 
 app = Flask(__name__)
+
+# 안전한 print 함수 (Windows 콘솔 인코딩 문제 방지)
+_builtin_print = print
+def safe_print(*args, **kwargs):
+    """Windows 콘솔 인코딩 오류를 방지하는 안전한 print 함수"""
+    try:
+        _builtin_print(*args, **kwargs)
+    except (UnicodeEncodeError, OSError):
+        # 인코딩 오류 발생 시 무시
+        pass
+
+# 전역 print를 safe_print로 대체
+import builtins
+builtins.print = safe_print
 
 # DB 연결 설정
 DB_CONFIG = {
@@ -2874,6 +2897,153 @@ def get_unit_info():
         import traceback
         traceback.print_exc()
         return jsonify({'unit': '-', 'error': str(e)})
+
+
+@app.route('/api/owner-info', methods=['POST'])
+def get_owner_info():
+    """VWorld API를 통한 토지소유정보 조회"""
+    try:
+        data = request.get_json()
+        sgg_code = data.get('sgg_code')  # 시군구코드 (5자리)
+        umd_name = data.get('umd_name')  # 읍면동명
+        jibun = data.get('jibun')  # 지번 (예: "119-3")
+
+        # 디버그 로그를 파일에 기록
+        with open('owner_debug.log', 'a', encoding='utf-8') as f:
+            f.write(f"\n[DEBUG] 소유자 정보 조회 요청 - 시군구:{sgg_code}, 읍면동:{umd_name}, 지번:{jibun}\n")
+
+        # 필수 파라미터 확인
+        if not all([sgg_code, umd_name, jibun]):
+            return jsonify({'error': '필수 파라미터가 누락되었습니다.'}), 400
+
+        # REGIONS 캐시에서 법정동코드 찾기
+        umd_code = None
+        for full_code, region_info in REGIONS['umd'].items():
+            if region_info['sgg_code'] == sgg_code and region_info['umd_name'] == umd_name:
+                umd_code = full_code[5:]  # 뒤 5자리가 법정동코드
+                break
+
+        if not umd_code:
+            with open('owner_debug.log', 'a', encoding='utf-8') as f:
+                f.write(f"[ERROR] 법정동코드를 찾을 수 없습니다 - 시군구:{sgg_code}, 읍면동:{umd_name}\n")
+            return jsonify({'error': '법정동코드를 찾을 수 없습니다.'}), 404
+
+        # 지번 파싱: "119-3" → 본번 "0119", 부번 "0003"
+        jibun_parts = str(jibun).split('-')
+        bon = jibun_parts[0].strip().zfill(4)
+        bu = jibun_parts[1].strip().zfill(4) if len(jibun_parts) > 1 else '0000'
+
+        # PNU 생성: 시군구코드(5) + 법정동코드(5) + 1 + 본번(4) + 부번(4)
+        pnu = f"{sgg_code}{umd_code}1{bon}{bu}"
+
+        with open('owner_debug.log', 'a', encoding='utf-8') as f:
+            f.write(f"[DEBUG] 법정동코드: {umd_code}, PNU: {pnu}\n")
+
+        # VWorld API 호출
+        api_key = os.getenv('VWORLD_API_KEY')
+        if not api_key:
+            return jsonify({'error': 'VWorld API Key가 설정되지 않았습니다.'}), 500
+
+        api_url = "https://api.vworld.kr/ned/data/getPossessionAttr"
+        params = {
+            'pnu': pnu,
+            'format': 'xml',
+            'numOfRows': 1000,
+            'pageNo': 1,
+            'key': api_key,
+            'domain': 'http://127.0.0.1'
+        }
+
+        with open('owner_debug.log', 'a', encoding='utf-8') as f:
+            f.write(f"[DEBUG] VWorld API 호출 중... params: {params}\n")
+        response = requests.get(api_url, params=params, timeout=10)
+
+        with open('owner_debug.log', 'a', encoding='utf-8') as f:
+            f.write(f"[DEBUG] VWorld API 응답 상태: {response.status_code}\n")
+
+        if response.status_code != 200:
+            with open('owner_debug.log', 'a', encoding='utf-8') as f:
+                f.write(f"[ERROR] VWorld API 호출 실패: {response.status_code}\n")
+            return jsonify({'error': f'API 호출 실패: {response.status_code}'}), 500
+
+        # XML 파싱
+        try:
+            with open('owner_debug.log', 'a', encoding='utf-8') as f:
+                f.write(f"[DEBUG] 응답 내용 (처음 500자): {response.content[:500]}\n")
+
+            root = ET.fromstring(response.content)
+
+            # VWorld API는 <fields><field> 구조로 응답
+            # possessions가 아니라 field 태그를 찾아야 함
+            fields = root.findall('.//field')
+
+            with open('owner_debug.log', 'a', encoding='utf-8') as f:
+                f.write(f"[DEBUG] field 태그 개수: {len(fields)}\n")
+
+            if not fields:
+                with open('owner_debug.log', 'a', encoding='utf-8') as f:
+                    f.write(f"[DEBUG] 소유자 정보 없음\n")
+                return jsonify({'data': {}, 'message': '소유자 정보가 없습니다.'})
+
+            # 결과 파싱
+            results = []
+            for field in fields:
+                item = {}
+                for child in field:
+                    tag = child.tag
+                    value = child.text or ''
+                    item[tag] = value
+                results.append(item)
+
+            safe_print(f"[DEBUG] 소유자 정보 {len(results)}건 조회 완료")
+
+            # 동·호별로 그룹화
+            grouped_data = {}
+            for item in results:
+                dong_nm = item.get('buldDongNm', '')
+                ho_nm = item.get('buldHoNm', '')
+
+                # 0000이나 빈 값은 무시
+                dong_nm = dong_nm if dong_nm and dong_nm != '0000' else ''
+                ho_nm = ho_nm if ho_nm and ho_nm != '0000' else ''
+
+                # 집합건물인 경우에만 동·호 그룹화, 아니면 전체를 하나의 그룹으로
+                if dong_nm and ho_nm:
+                    key = f"{dong_nm}동 {ho_nm}호"
+                elif dong_nm:
+                    key = f"{dong_nm}동"
+                elif ho_nm:
+                    key = f"{ho_nm}호"
+                else:
+                    key = "토지"
+
+                if key not in grouped_data:
+                    grouped_data[key] = []
+
+                grouped_data[key].append({
+                    'posesnSeCodeNm': item.get('posesnSeCodeNm', '-'),
+                    'resdncSeCodeNm': item.get('resdncSeCodeNm', '-'),
+                    'ownshipChgDe': item.get('ownshipChgDe', '-'),
+                    'ownshipChgCauseCodeNm': item.get('ownshipChgCauseCodeNm', '-'),
+                    'cnrsPsnCo': item.get('cnrsPsnCo', '0'),
+                    'buldDongNm': dong_nm,
+                    'buldHoNm': ho_nm
+                })
+
+            return jsonify({'data': grouped_data})
+
+        except ET.ParseError as e:
+            safe_print(f"[ERROR] XML 파싱 오류: {str(e)}")
+            return jsonify({'error': 'API 응답 파싱 실패'}), 500
+
+    except requests.Timeout:
+        safe_print(f"[ERROR] VWorld API 타임아웃")
+        return jsonify({'error': 'API 호출 타임아웃'}), 504
+    except Exception as e:
+        safe_print(f"[ERROR] 소유자 정보 조회 오류: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': str(e)}), 500
 
 
 

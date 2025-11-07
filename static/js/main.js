@@ -953,6 +953,37 @@ function openBuildingModal(buildingName, propertyType, sigunguCode, umdName, jib
         sigungu
     };
 
+    // 탭 기능을 위한 건물 정보 저장
+    currentBuildingInfo = {
+        buildingName,
+        propertyType,
+        sigunguCode,
+        umdName,
+        jibun,
+        sido,
+        sigungu
+    };
+
+    // 탭 초기화 (실거래가 탭 활성화)
+    document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.tab-content').forEach(content => {
+        content.classList.remove('active');
+        content.style.display = 'none';
+    });
+    const transactionsTab = document.querySelector('.tab-btn[data-tab="transactions"]');
+    if (transactionsTab) transactionsTab.classList.add('active');
+    const transactionsContent = document.getElementById('tab-transactions');
+    if (transactionsContent) {
+        transactionsContent.classList.add('active');
+        transactionsContent.style.display = 'block';
+    }
+
+    // 소유자 정보 초기화
+    const ownerContent = document.getElementById('owner-info-content');
+    const ownerError = document.getElementById('owner-error');
+    if (ownerContent) ownerContent.innerHTML = '';
+    if (ownerError) ownerError.style.display = 'none';
+
     // 필터 체크박스 초기화 (체크 해제)
     const futureOnlyCheckbox = document.getElementById('future-listings-only');
     if (futureOnlyCheckbox) {
@@ -973,6 +1004,14 @@ function openBuildingModal(buildingName, propertyType, sigunguCode, umdName, jib
     const addressText = `${sido} ${sigungu} ${umdName} ${jibun}`;
     const fullText = buildingName ? `${addressText} ${buildingName}` : addressText;
     modalBuildingName.innerHTML = typeBadge + fullText;
+
+    // 관페 바로가기 링크 설정
+    const gwanpeLink = document.getElementById('gwanpe-link');
+    if (gwanpeLink) {
+        const searchQuery = `${umdName} ${jibun}`;
+        const encodedQuery = encodeURIComponent(searchQuery);
+        gwanpeLink.href = `https://ziptoss.com/v2/admin/buildings?search=${encodedQuery}`;
+    }
 
     // 모달 표시
     modal.style.display = 'flex';
@@ -1514,6 +1553,14 @@ function openBuildingDetailModal(building) {
     // 모달 제목 설정
     modalBuildingName.textContent = building.building_name || building.full_address;
 
+    // 관페 바로가기 링크 설정
+    const gwanpeLink = document.getElementById('gwanpe-link');
+    if (gwanpeLink && building.umd_name && building.jibun) {
+        const searchQuery = `${building.umd_name} ${building.jibun}`;
+        const encodedQuery = encodeURIComponent(searchQuery);
+        gwanpeLink.href = `https://ziptoss.com/v2/admin/buildings?search=${encodedQuery}`;
+    }
+
     // 모달 표시
     modal.style.display = 'block';
     modalLoading.style.display = 'block';
@@ -1590,4 +1637,349 @@ function displayModalTransactions(transactions) {
 
         modalTableBody.appendChild(tr);
     });
+}
+
+// ============================================================================
+// 탭 전환 기능
+// ============================================================================
+
+// 모달 열릴 때 저장할 건물 정보
+let currentBuildingInfo = null;
+
+// 탭 전환 이벤트 리스너
+document.addEventListener('DOMContentLoaded', function() {
+    const tabButtons = document.querySelectorAll('.tab-btn');
+
+    tabButtons.forEach(button => {
+        button.addEventListener('click', function() {
+            const tabName = this.getAttribute('data-tab');
+
+            // 모든 탭 버튼과 콘텐츠에서 active 클래스 제거
+            tabButtons.forEach(btn => btn.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(content => {
+                content.classList.remove('active');
+                content.style.display = 'none';
+            });
+
+            // 클릭한 탭 버튼과 콘텐츠에 active 클래스 추가
+            this.classList.add('active');
+            const targetContent = document.getElementById(`tab-${tabName}`);
+            if (targetContent) {
+                targetContent.classList.add('active');
+                targetContent.style.display = 'block';
+            }
+
+            // 소유자 정보 탭으로 전환 시 데이터 로드
+            if (tabName === 'owner-info' && currentBuildingInfo) {
+                loadOwnerInfo(currentBuildingInfo);
+            }
+        });
+    });
+});
+
+// ============================================================================
+// 소유자 정보 API 호출
+// ============================================================================
+
+function loadOwnerInfo(buildingInfo) {
+    const ownerLoading = document.getElementById('owner-loading');
+    const ownerError = document.getElementById('owner-error');
+    const ownerContent = document.getElementById('owner-info-content');
+
+    // 로딩 시작
+    ownerLoading.style.display = 'block';
+    ownerError.style.display = 'none';
+    ownerContent.innerHTML = '';
+
+    console.log('소유자 정보 조회:', {
+        sgg_code: buildingInfo.sigunguCode,
+        umd_name: buildingInfo.umdName,
+        jibun: buildingInfo.jibun
+    });
+
+    // API 호출
+    fetch('/api/owner-info', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            sgg_code: buildingInfo.sigunguCode,
+            umd_name: buildingInfo.umdName,
+            jibun: buildingInfo.jibun
+        })
+    })
+    .then(response => response.json())
+    .then(result => {
+        ownerLoading.style.display = 'none';
+
+        if (result.error) {
+            ownerError.textContent = `오류: ${result.error}`;
+            ownerError.style.display = 'block';
+            return;
+        }
+
+        if (result.message) {
+            ownerContent.innerHTML = `<p style="padding: 20px; text-align: center; color: #64748b;">${result.message}</p>`;
+            return;
+        }
+
+        displayOwnerInfo(result.data);
+    })
+    .catch(error => {
+        console.error('소유자 정보 조회 오류:', error);
+        ownerLoading.style.display = 'none';
+        ownerError.textContent = '소유자 정보를 불러오는 중 오류가 발생했습니다.';
+        ownerError.style.display = 'block';
+    });
+}
+
+function displayOwnerInfo(groupedData) {
+    const ownerContent = document.getElementById('owner-info-content');
+
+    if (!groupedData || Object.keys(groupedData).length === 0) {
+        ownerContent.innerHTML = '<p style="padding: 20px; text-align: center; color: #64748b;">소유자 정보가 없습니다.</p>';
+        return;
+    }
+
+    // 분양 상태 분석
+    const distributionMessage = analyzeOwnershipDistribution(groupedData);
+
+    let html = '';
+
+    // 분양 상태 메시지 표시
+    if (distributionMessage) {
+        html += `
+            <div style="background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 16px 20px; border-radius: 10px; margin-bottom: 20px; font-size: 14px; line-height: 1.6;">
+                ${distributionMessage}
+            </div>
+        `;
+    }
+
+    // 동·호별로 그룹화된 데이터 렌더링
+    for (const [unitKey, owners] of Object.entries(groupedData)) {
+        // 소유자 수 계산 (공유인수 + 1 또는 배열 길이)
+        const ownerCount = owners.length > 0 ? (parseInt(owners[0].cnrsPsnCo) + 1) : 1;
+
+        // 소유 기간 계산
+        let ownershipPeriodText = '';
+        if (owners.length > 0) {
+            const firstOwner = owners[0];
+            const causeCode = firstOwner.ownshipChgCauseCodeNm;
+
+            console.log(`[소유기간] ${unitKey} - 변동원인: ${causeCode}, 변동일자: ${firstOwner.ownshipChgDe}`);
+
+            if (causeCode === '소유권이전' || causeCode === '소유권보존') {
+                const changeDate = firstOwner.ownshipChgDe;
+                if (changeDate && (changeDate.length === 8 || changeDate.length === 10)) {
+                    const period = calculateOwnershipPeriod(changeDate);
+                    console.log(`[소유기간] ${unitKey} - 계산된 기간: ${period}`);
+                    if (period) {
+                        ownershipPeriodText = ` <span style="color: rgba(255, 255, 255, 0.85); font-weight: normal;">| 소유기간 ${period}</span>`;
+                    }
+                } else {
+                    console.log(`[소유기간] ${unitKey} - 변동일자 형식 오류 (길이: ${changeDate ? changeDate.length : 'null'})`);
+                }
+            } else {
+                console.log(`[소유기간] ${unitKey} - 조건 불일치 (소유권이전/보존 아님)`);
+            }
+        }
+
+        html += `
+            <div class="owner-unit-group">
+                <div class="owner-unit-header">
+                    <span class="owner-unit-title">${unitKey}</span>
+                    <span class="owner-count">소유자: ${ownerCount}명${ownershipPeriodText}</span>
+                </div>
+                <div class="owner-table-wrapper">
+                    <table class="owner-info-table" style="width: 100%; table-layout: fixed;">
+                        <thead>
+                            <tr>
+                                <th style="width: 25%;">소유자 구분</th>
+                                <th style="width: 25%;">소유자 거주지</th>
+                                <th style="width: 25%;">소유권변동일자</th>
+                                <th style="width: 25%;">소유권변동원인</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+        `;
+
+        owners.forEach(owner => {
+            html += `
+                <tr>
+                    <td style="width: 25%;">${owner.posesnSeCodeNm}</td>
+                    <td style="width: 25%;">${owner.resdncSeCodeNm}</td>
+                    <td style="width: 25%;">${owner.ownshipChgDe}</td>
+                    <td style="width: 25%;">${owner.ownshipChgCauseCodeNm}</td>
+                </tr>
+            `;
+        });
+
+        html += `
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        `;
+    }
+
+    ownerContent.innerHTML = html;
+}
+
+// 소유 기간 계산 함수
+function calculateOwnershipPeriod(changeDateStr) {
+    try {
+        let year, month, day;
+
+        // YYYY-MM-DD 형식 (10자리) 또는 YYYYMMDD 형식 (8자리) 처리
+        if (changeDateStr.includes('-')) {
+            // YYYY-MM-DD 형식
+            const parts = changeDateStr.split('-');
+            year = parseInt(parts[0]);
+            month = parseInt(parts[1]) - 1; // 0-indexed
+            day = parseInt(parts[2]);
+        } else if (changeDateStr.length === 8) {
+            // YYYYMMDD 형식
+            year = parseInt(changeDateStr.substring(0, 4));
+            month = parseInt(changeDateStr.substring(4, 6)) - 1; // 0-indexed
+            day = parseInt(changeDateStr.substring(6, 8));
+        } else {
+            console.error('소유 기간 계산 오류: 지원하지 않는 날짜 형식', changeDateStr);
+            return null;
+        }
+
+        const changeDate = new Date(year, month, day);
+        const today = new Date();
+
+        // 년/월 차이 계산
+        let years = today.getFullYear() - changeDate.getFullYear();
+        let months = today.getMonth() - changeDate.getMonth();
+        let days = today.getDate() - changeDate.getDate();
+
+        // 일수가 음수면 이전 달에서 빌림
+        if (days < 0) {
+            months--;
+        }
+
+        // 월수가 음수면 이전 연도에서 빌림
+        if (months < 0) {
+            years--;
+            months += 12;
+        }
+
+        // 결과 포맷팅
+        if (years > 0 && months > 0) {
+            return `${years}년 ${months}개월`;
+        } else if (years > 0) {
+            return `${years}년`;
+        } else if (months > 0) {
+            return `${months}개월`;
+        } else {
+            return '1개월 미만';
+        }
+    } catch (error) {
+        console.error('소유 기간 계산 오류:', error);
+        return null;
+    }
+}
+
+// 소유권 분포 분석 함수
+function analyzeOwnershipDistribution(groupedData) {
+    const units = Object.keys(groupedData);
+
+    // 호실이 1개 이하면 분석하지 않음
+    if (units.length <= 1) {
+        return null;
+    }
+
+    // 각 호실의 소유자 정보를 signature로 변환
+    const unitSignatures = {};
+    for (const [unitKey, owners] of Object.entries(groupedData)) {
+        // 소유자 정보를 정렬하여 signature 생성
+        const signature = owners.map(owner =>
+            `${owner.posesnSeCodeNm}|${owner.resdncSeCodeNm}|${owner.ownshipChgDe}|${owner.ownshipChgCauseCodeNm}|${owner.cnrsPsnCo}`
+        ).sort().join('::');
+
+        unitSignatures[unitKey] = {
+            signature: signature,
+            ownerCount: owners.length > 0 ? (parseInt(owners[0].cnrsPsnCo) + 1) : 1
+        };
+
+        // 디버깅: 각 호실의 signature 출력
+        console.log(`[소유권분석] ${unitKey}:`, signature);
+    }
+
+    // signature별로 호실 그룹화
+    const signatureGroups = {};
+    for (const [unitKey, data] of Object.entries(unitSignatures)) {
+        if (!signatureGroups[data.signature]) {
+            signatureGroups[data.signature] = {
+                units: [],
+                ownerCount: data.ownerCount
+            };
+        }
+        signatureGroups[data.signature].units.push(unitKey);
+    }
+
+    const groupCount = Object.keys(signatureGroups).length;
+    const totalUnits = units.length;
+
+    // 디버깅: 그룹화 결과 출력
+    console.log(`[소유권분석] 전체 호실 수: ${totalUnits}, 그룹 수: ${groupCount}`);
+    console.log('[소유권분석] 그룹별 호실:', signatureGroups);
+
+    // 경우 1: 모든 호실이 동일한 소유자 (미분양)
+    if (groupCount === 1) {
+        const ownerCount = Object.values(signatureGroups)[0].ownerCount;
+        return `이 건물은 분양되지 않았으며, 모든 호실을 ${ownerCount}명이 소유하고 있는 것으로 추정됩니다.`;
+    }
+
+    // 경우 2: 모든 호실이 다른 소유자 (완전 분양)
+    if (groupCount === totalUnits) {
+        return `이 건물은 모든 호실이 분양된 것으로 추정됩니다.`;
+    }
+
+    // 경우 3: 일부 호실만 동일한 소유자 (부분 분양)
+    // 2개 이상의 호실을 가진 그룹만 추출
+    const sameOwnerGroups = [];
+    for (const [signature, data] of Object.entries(signatureGroups)) {
+        console.log(`[소유권분석] signature 그룹: ${data.units.join(', ')} (${data.units.length}개 호실)`);
+
+        // 중요: 2개 이상의 호실이 동일한 소유자를 가질 때만 추가
+        if (data.units.length >= 2) {
+            sameOwnerGroups.push({
+                units: data.units,
+                ownerCount: data.ownerCount
+            });
+            console.log(`  → 동일 소유자 그룹으로 추가됨`);
+        } else {
+            console.log(`  → 단일 호실이므로 제외됨`);
+        }
+    }
+
+    console.log(`[소유권분석] 동일 소유자 그룹 수: ${sameOwnerGroups.length}`);
+
+    // 2개 이상 묶인 그룹이 없으면 완전 분양
+    if (sameOwnerGroups.length === 0) {
+        console.log(`[소유권분석] 결과: 모든 호실 분양됨`);
+        return `이 건물은 모든 호실이 분양된 것으로 추정됩니다.`;
+    }
+
+    // 메시지 생성
+    const groupMessages = sameOwnerGroups.map(group =>
+        `${group.units.join(', ')}은 동일 소유자 ${group.ownerCount}명이`
+    ).join(', ');
+
+    // 모든 호실이 동일 소유자 그룹에 속하는지 확인
+    const totalSameOwnerUnits = sameOwnerGroups.reduce((sum, group) => sum + group.units.length, 0);
+
+    console.log(`[소유권분석] 동일 소유자가 소유한 호실 수: ${totalSameOwnerUnits} / ${totalUnits}`);
+
+    if (totalSameOwnerUnits === totalUnits) {
+        console.log(`[소유권분석] 결과: 모든 호실이 동일 소유자 그룹들에 속함`);
+        return `${groupMessages} 소유한 것으로 추정됩니다.`;
+    } else {
+        console.log(`[소유권분석] 결과: 일부만 동일 소유자, 나머지는 분양됨`);
+        return `${groupMessages} 소유하고 있으며, 나머지 호실들은 분양된 것으로 추정됩니다.`;
+    }
 }

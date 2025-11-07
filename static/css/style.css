@@ -809,7 +809,11 @@ tbody tr:last-child td {
     border-radius: 12px;
     width: 90%;
     max-width: 1200px;
+    max-height: 85vh;
     box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
 }
 
 .modal-header {
@@ -818,6 +822,7 @@ tbody tr:last-child td {
     align-items: center;
     padding: 20px 30px;
     border-bottom: 1px solid var(--border-color);
+    flex-shrink: 0;
 }
 
 .modal-header h3 {
@@ -840,10 +845,149 @@ tbody tr:last-child td {
     color: var(--text-color);
 }
 
+.gwanpe-btn {
+    display: inline-block;
+    padding: 8px 16px;
+    background-color: var(--primary-color);
+    color: white;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 600;
+    transition: background-color 0.2s, transform 0.1s;
+    margin-right: 12px;
+}
+
+.gwanpe-btn:hover {
+    background-color: #1d4ed8;
+    transform: translateY(-1px);
+}
+
+.gwanpe-btn:active {
+    transform: translateY(0);
+}
+
+/* 탭 네비게이션 */
+.modal-tabs {
+    display: flex;
+    border-bottom: 2px solid var(--border-color);
+    background-color: #f8fafc;
+    padding: 0 20px;
+    flex-shrink: 0;
+}
+
+.tab-btn {
+    padding: 14px 24px;
+    background: none;
+    border: none;
+    font-size: 15px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    cursor: pointer;
+    position: relative;
+    transition: all 0.2s;
+    border-bottom: 3px solid transparent;
+}
+
+.tab-btn:hover {
+    color: var(--primary-color);
+    background-color: rgba(37, 99, 235, 0.05);
+}
+
+.tab-btn.active {
+    color: var(--primary-color);
+    border-bottom-color: var(--primary-color);
+}
+
+/* 탭 콘텐츠 */
+.tab-content {
+    display: none;
+}
+
+.tab-content.active {
+    display: block;
+}
+
+/* 소유자 정보 스타일 */
+#owner-info-content {
+    padding: 20px 0;
+}
+
+.owner-unit-group {
+    margin-bottom: 30px;
+    border: 1px solid var(--border-color);
+    border-radius: 10px;
+    overflow: hidden;
+    background: white;
+}
+
+.owner-unit-header {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    padding: 14px 20px;
+    font-weight: 600;
+    font-size: 16px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.owner-unit-title {
+    font-size: 16px;
+}
+
+.owner-count {
+    font-size: 14px;
+    opacity: 0.9;
+}
+
+/* 테이블 스타일 */
+.owner-table-wrapper {
+    width: 100%;
+    overflow-x: auto;
+}
+
+.owner-info-table {
+    width: 100%;
+    min-width: 600px;
+    border-collapse: collapse;
+    table-layout: fixed;
+}
+
+.owner-info-table th,
+.owner-info-table td {
+    padding: 6px 8px;
+    text-align: left;
+    border-bottom: 1px solid var(--border-color);
+    word-wrap: break-word;
+    overflow-wrap: break-word;
+    font-size: 11px;
+}
+
+.owner-info-table th {
+    background-color: #f8fafc;
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.owner-info-table td {
+    color: var(--text-secondary);
+}
+
+.owner-info-table tr:last-child td {
+    border-bottom: none;
+}
+
+.owner-info-table tbody tr:hover {
+    background-color: var(--hover-bg);
+}
+
 .modal-body {
     padding: 30px;
-    max-height: 70vh;
+    flex: 1;
     overflow-y: auto;
+    overflow-x: hidden;
+    min-height: 0;
 }
 
 .modal-loading {
@@ -862,6 +1006,7 @@ tbody tr:last-child td {
 
 .modal-table-container {
     overflow-x: auto;
+    overflow-y: visible;
     border-radius: 8px;
     border: 1px solid var(--border-color);
 }
@@ -893,3 +1038,4 @@ tbody tr:last-child td {
 #modal-results-table th:nth-child(12), #modal-results-table td:nth-child(12) { width: 80px !important; min-width: 80px; max-width: 80px; }  /* 종전보증금 */
 #modal-results-table th:nth-child(13), #modal-results-table td:nth-child(13) { width: 70px !important; min-width: 70px; max-width: 70px; }  /* 종전월세 */
 #modal-results-table th:nth-child(14), #modal-results-table td:nth-child(14) { width: 80px !important; min-width: 80px; max-width: 80px; }  /* 갱신권사용 */
+/* Updated 2025-11-07 18:52:19 - Owner table width fix */
