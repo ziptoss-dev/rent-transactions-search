@@ -60,19 +60,31 @@ header h1 {
     color: white;
 }
 
-.building-autocomplete-container {
+.building-search-wrapper {
     position: relative;
-    max-width: 600px;
+    max-width: 700px;
+}
+
+.building-autocomplete-container {
+    display: flex;
+    gap: 10px;
+    align-items: stretch;
 }
 
 .building-autocomplete-container input {
-    width: 100%;
+    flex: 1;
+    min-width: 300px;
     padding: 14px 18px;
     border: 2px solid rgba(255, 255, 255, 0.3);
     border-radius: 10px;
     font-size: 16px;
     background: rgba(255, 255, 255, 0.95);
     transition: all 0.3s;
+}
+
+#building-search-btn {
+    padding: 14px 28px;
+    white-space: nowrap;
 }
 
 .building-autocomplete-container input:focus {
@@ -84,10 +96,9 @@ header h1 {
 
 .autocomplete-results {
     position: absolute;
-    top: 100%;
+    top: calc(100% + 8px);
     left: 0;
     right: 0;
-    margin-top: 8px;
     background: white;
     border-radius: 10px;
     box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
