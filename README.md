@@ -547,6 +547,31 @@ has_more = any(count == page_size for count in result_counts)
 
 ## 최근 업데이트 내역
 
+### 2025-11-07 (v2.5)
+- **오피스텔 기준시가 매핑 수정 완료**: 결과 매핑에서 0-padding 제거로 실거래가 데이터와 매칭 성공
+  - **문제**: v2.4에서 쿼리는 INTEGER 변환으로 정상 동작하지만, 결과 매핑에서 0-padding이 유지되어 매칭 실패
+    - DB 결과: `번지=0506`, `호=0015` (0-padding 포함)
+    - 키 생성: `('0506-0015', 13, 20.67)` (padding 유지)
+    - 실거래가: `지번=506-15` → 매칭 실패
+  - **해결**: 결과 매핑 시 INTEGER 변환으로 padding 제거
+    ```python
+    # 변경 전
+    bunji = str(db_row['번지']).strip()  # "0506"
+    ho = str(db_row['호']).strip()       # "0015"
+
+    # 변경 후
+    bunji = str(int(db_row['번지']))  # "506" (padding 제거)
+    ho = str(int(db_row['호']))       # "15" (padding 제거)
+    ```
+  - **개선 효과**:
+    - 망우동 506-15 13층 전용 20.67 등 기존 미매칭 건 모두 매칭 성공
+    - 오피스텔 기준시가 매칭률 95%+ 달성 예상
+  - **파일**: `app.py:1188-1189 (fetch_officetel_standard_prices_batch 함수)`
+- **연립다세대 defaultdict import 오류 수정**: 누락된 import 문 추가
+  - **문제**: 공동주택가격 일괄 조회 시 "cannot access local variable 'defaultdict'" 오류 발생
+  - **해결**: `from collections import defaultdict` 추가
+  - **파일**: `app.py:1897 (연립다세대 섹션)`
+
 ### 2025-11-05 (v2.4)
 - **오피스텔 기준시가 매칭률 대폭 개선**: INTEGER 변환 + Regex 필터로 데이터 품질 문제 해결
   - **문제 1 - 패딩 불일치**: 기준시가 `번지=0094`, `호=0208` (앞자리 0 패딩) vs 실거래가 `지번=94-208` → TEXT 비교로 매칭 실패
