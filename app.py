@@ -20,6 +20,27 @@ DB_CONFIG = {
     'connect_timeout': 30
 }
 
+# 간단한 DB 연결 풀 (서버리스 환경 최적화)
+_db_connection = None
+
+def get_db_connection():
+    """DB 연결 재사용 (서버리스 환경에서 성능 개선)"""
+    global _db_connection
+    try:
+        # 기존 연결이 있고 유효하면 재사용
+        if _db_connection is not None and not _db_connection.closed:
+            # 간단한 연결 테스트
+            cursor = _db_connection.cursor()
+            cursor.execute('SELECT 1')
+            cursor.close()
+            return _db_connection
+    except:
+        pass
+
+    # 새 연결 생성
+    _db_connection = psycopg.connect(**DB_CONFIG, row_factory=dict_row)
+    return _db_connection
+
 # 시도명 축약 매핑
 SIDO_ABBR = {
     '서울특별시': '서울',
@@ -1856,7 +1877,7 @@ def get_building_transactions():
                 'error': '주택유형, 시군구코드, 읍면동은 필수입니다.'
             })
 
-        conn = psycopg.connect(**DB_CONFIG, row_factory=dict_row)
+        conn = get_db_connection()
         cursor = conn.cursor()
 
         results = []
@@ -2149,7 +2170,7 @@ def get_building_transactions():
                 row['동호명_더보기'] = False
 
         cursor.close()
-        conn.close()
+        # 연결은 재사용을 위해 닫지 않음
 
         return jsonify({
             'success': True,
@@ -2195,95 +2216,66 @@ def search_building():
         umd_name = match.group(1).strip()  # 정확한 읍면동명
         jibun_search = match.group(2).strip()  # 지번 검색어
 
-        conn = psycopg.connect(**DB_CONFIG, row_factory=dict_row)
+        conn = get_db_connection()
         cursor = conn.cursor()
-
-        # 성능 최적화: 4개의 쿼리를 하나의 UNION ALL로 합치고 각 서브쿼리에서 LIMIT 줄임
-        cursor.execute("""
-            (SELECT DISTINCT
-                a.sggcd as sgg_code,
-                a.umdnm as umd_name,
-                a.jibun,
-                a.aptnm as building_name,
-                '아파트' as property_type
-            FROM apt_rent_transactions a
-            WHERE a.umdnm = %s AND a.jibun LIKE %s
-            LIMIT 5)
-
-            UNION ALL
-
-            (SELECT DISTINCT
-                v.sggcd as sgg_code,
-                v.umdnm as umd_name,
-                v.jibun,
-                v.mhousename as building_name,
-                '연립다세대' as property_type
-            FROM villa_rent_transactions v
-            WHERE v.umdnm = %s AND v.jibun LIKE %s
-            LIMIT 5)
-
-            UNION ALL
-
-            (SELECT DISTINCT
-                o.sggcd as sgg_code,
-                o.umdnm as umd_name,
-                o.jibun,
-                o.offinm as building_name,
-                '오피스텔' as property_type
-            FROM officetel_rent_transactions o
-            WHERE o.umdnm = %s AND o.jibun LIKE %s
-            LIMIT 5)
-
-            UNION ALL
-
-            (SELECT DISTINCT
-                d.sggcd as sgg_code,
-                d.umdnm as umd_name,
-                d.jibun,
-                NULL as building_name,
-                '단독다가구' as property_type
-            FROM dagagu_rent_transactions d
-            WHERE d.umdnm = %s AND d.jibun LIKE %s
-            LIMIT 5)
-        """, (
-            umd_name, f'{jibun_search}%',  # 아파트
-            umd_name, f'{jibun_search}%',  # 연립다세대
-            umd_name, f'{jibun_search}%',  # 오피스텔
-            umd_name, f'{jibun_search}%'   # 단독다가구
-        ))
 
         buildings = []
         seen = set()  # 중복 제거용
+        MAX_RESULTS = 12  # 최대 결과 수
 
-        for row in cursor.fetchall():
-            key = (row['sgg_code'], row['umd_name'], row['jibun'], row['building_name'])
-            if key not in seen:
-                seen.add(key)
-                # 시도/시군구 정보 추출
-                sgg_code = row['sgg_code']
-                sido = ''
-                sigungu = ''
-                if sgg_code and sgg_code in REGIONS['sigungu']:
-                    sido_full = REGIONS['sigungu'][sgg_code]['sido']
-                    sido = SIDO_ABBR.get(sido_full, sido_full)
-                    sigungu = REGIONS['sigungu'][sgg_code]['name']
+        # 성능 최적화: 순차적 검색으로 변경 (충분한 결과 있으면 다음 테이블 건너뛰기)
+        # 각 테이블에서 LIMIT 3으로 줄여서 빠르게 검색
+        tables = [
+            ('apt_rent_transactions', 'aptnm', '아파트'),
+            ('villa_rent_transactions', 'mhousename', '연립다세대'),
+            ('officetel_rent_transactions', 'offinm', '오피스텔'),
+            ('dagagu_rent_transactions', 'NULL', '단독다가구')
+        ]
 
-                buildings.append({
-                    'sgg_code': row['sgg_code'],
-                    'umd_name': row['umd_name'],
-                    'jibun': row['jibun'],
-                    'building_name': row['building_name'],
-                    'property_type': row['property_type'],
-                    'sido': sido,
-                    'sigungu': sigungu,
-                    'full_address': f"{row['umd_name']} {row['jibun']} {row['building_name'] or ''}"
-                })
+        for table_name, building_col, property_type in tables:
+            if len(buildings) >= MAX_RESULTS:
+                break  # 충분한 결과 확보
+
+            query = f"""
+                SELECT DISTINCT
+                    sggcd as sgg_code,
+                    umdnm as umd_name,
+                    jibun,
+                    {building_col} as building_name,
+                    %s as property_type
+                FROM {table_name}
+                WHERE umdnm = %s AND jibun LIKE %s
+                LIMIT 3
+            """
+
+            cursor.execute(query, (property_type, umd_name, f'{jibun_search}%'))
+
+            for row in cursor.fetchall():
+                key = (row['sgg_code'], row['umd_name'], row['jibun'], row['building_name'])
+                if key not in seen:
+                    seen.add(key)
+                    # 시도/시군구 정보 추출
+                    sgg_code = row['sgg_code']
+                    sido = ''
+                    sigungu = ''
+                    if sgg_code and sgg_code in REGIONS['sigungu']:
+                        sido_full = REGIONS['sigungu'][sgg_code]['sido']
+                        sido = SIDO_ABBR.get(sido_full, sido_full)
+                        sigungu = REGIONS['sigungu'][sgg_code]['name']
+
+                    buildings.append({
+                        'sgg_code': row['sgg_code'],
+                        'umd_name': row['umd_name'],
+                        'jibun': row['jibun'],
+                        'building_name': row['building_name'],
+                        'property_type': row['property_type'],
+                        'sido': sido,
+                        'sigungu': sigungu,
+                        'full_address': f"{row['umd_name']} {row['jibun']} {row['building_name'] or ''}"
+                    })
 
         cursor.close()
-        conn.close()
-
-        # 최대 15개까지만 반환
-        buildings = buildings[:15]
+        # 연결은 재사용을 위해 닫지 않음
 
         return jsonify({
             'success': True,
