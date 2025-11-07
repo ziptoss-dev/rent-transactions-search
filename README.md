@@ -6,6 +6,7 @@ PostgreSQL 데이터베이스에 저장된 아파트, 연립다세대, 단독다
 
 - **4가지 주택 유형 조회**: 아파트, 연립다세대, 단독다가구, 오피스텔 데이터 선택적 조회
 - **다중 필터 검색**: 계약만기시기, 지역(시도/시군구/읍면동), 면적, 보증금, 월세, 건축년도 등 다양한 조건으로 검색
+- **오피스텔 기준시가 검증**: 보증금이 기준시가 126%를 초과하는지 색상으로 표시 (초록/빨강)
 - **건물별 상세 조회**: 건물명 클릭 시 해당 건물의 모든 실거래 내역을 모달로 확인
 - **무한 스크롤**: 스크롤 시 자동으로 추가 데이터 로드 (페이지당 20건)
 - **실시간 데이터 조회**: PostgreSQL 데이터베이스와 직접 연동
@@ -63,28 +64,250 @@ python app.py
 
 서버가 실행되면 브라우저에서 `http://localhost:5000` 접속
 
-## 데이터베이스 테이블
+## 데이터베이스 테이블 스키마
+
+**⚠️ 중요**: 각 테이블마다 컬럼 구조가 다릅니다. 쿼리 작성 시 반드시 아래 인덱스를 확인하세요!
 
 ### 1. apt_rent_transactions (아파트 전월세)
-- 주요 컬럼: sggcd, umdnm, jibun, aptnm, excluusear, dealyear, dealmonth, dealday, deposit, monthlyrent, floor, buildyear, contracttype, contractterm, predeposit, premonthlyrent, userrright
-- 데이터 건수: 약 889만 건
-- **계약기간(contractterm) 형식**: `YY.MM~YY.MM` (예: `25.07~26.07`)
+
+**데이터 건수**: 약 889만 건
+**계약기간 형식**: `YY.MM~YY.MM` (예: `25.07~26.07`)
+
+#### 컬럼 구조 (인덱스 기준)
+```
+0: unique_key (고유키)
+1: sggcd (시군구코드) ← WHERE 절에 사용
+2: umdnm (읍면동명) ← WHERE 절에 사용
+3: jibun (지번)
+4: aptnm (아파트명) ← 건물명
+5: excluusear (전용면적) ← 면적
+6: floor (층)
+7: buildyear (건축년도)
+8: dealyear (계약년) ← 계약년월 생성에 사용
+9: dealmonth (계약월) ← 계약년월 생성에 사용
+10: dealday (계약일)
+11: deposit (보증금)
+12: monthlyrent (월세)
+13: contractterm (계약기간) ← YY.MM~YY.MM 형식
+14: contracttype (계약구분)
+15: userrright (갱신요구권사용)
+16: predeposit (종전계약보증금)
+17: premonthlyrent (종전계약월세)
+```
+
+#### 모달 쿼리 ORDER BY
+```sql
+ORDER BY CONCAT(
+    LPAD(COALESCE(NULLIF("{col_names[8]}", ''), ''), 4, '0'),
+    LPAD(COALESCE(NULLIF("{col_names[9]}", ''), ''), 2, '0')
+) DESC, CAST(NULLIF("{col_names[10]}", '') AS INTEGER) DESC NULLS LAST
+```
 
 ### 2. villa_rent_transactions (연립다세대 전월세)
-- 주요 컬럼: sggcd, umdnm, jibun, mhousename, excluusear, dealyear, dealmonth, dealday, deposit, monthlyrent, floor, buildyear, contracttype, contractterm, predeposit, premonthlyrent, userrright
-- 데이터 건수: 약 283만 건
-- **계약기간(contractterm) 형식**: `YY.MM~YY.MM` (예: `25.07~26.07`)
+
+**데이터 건수**: 약 283만 건
+**계약기간 형식**: `YY.MM~YY.MM` (예: `25.07~26.07`)
+
+#### 컬럼 구조 (인덱스 기준)
+```
+0: unique_key (고유키)
+1: sggcd (시군구코드) ← WHERE 절에 사용
+2: umdnm (읍면동명) ← WHERE 절에 사용
+3: jibun (지번)
+4: mhousename (연립다세대명) ← 건물명
+5: excluusear (전용면적) ← 면적
+6: dealyear (계약년) ← 계약년월 생성에 사용
+7: dealmonth (계약월) ← 계약년월 생성에 사용
+8: dealday (계약일)
+9: deposit (보증금)
+10: monthlyrent (월세)
+11: floor (층)
+12: buildyear (건축년도)
+13: created_at (생성일시)
+14: contracttype (계약구분)
+15: contractterm (계약기간) ← YY.MM~YY.MM 형식
+16: predeposit (종전계약보증금)
+17: premonthlyrent (종전계약월세)
+18: userrright (갱신요구권사용)
+```
+
+#### 모달 쿼리 ORDER BY
+```sql
+ORDER BY CONCAT(
+    LPAD(COALESCE(NULLIF("{col_names[6]}", ''), ''), 4, '0'),
+    LPAD(COALESCE(NULLIF("{col_names[7]}", ''), ''), 2, '0')
+) DESC, CAST(NULLIF("{col_names[8]}", '') AS INTEGER) DESC NULLS LAST
+```
 
 ### 3. dagagu_rent_transactions (단독다가구 전월세)
-- 주요 컬럼: sggcd, bjdcd, umdnm, jibun, 계약년도, 계약월, 계약일, 보증금, 월세, 전용면적, 건축년도, 계약구분, 계약기간, 종전계약보증금, 종전계약월세, 갱신요구권사용
-- 데이터 건수: 약 148만 건
-- **계약기간 형식**: `YYYYMM~YYYYMM` (예: `202508~202608`)
-- 참고: 컬럼명 일부가 한글로 되어 있음
+
+**데이터 건수**: 약 148만 건
+**계약기간 형식**: `YYYYMM~YYYYMM` (예: `202508~202608`)
+**특징**: 컬럼명 일부가 한글로 되어 있음
+
+#### 컬럼 구조 (인덱스 기준)
+```
+0: id
+1: sggcd (시군구코드) ← WHERE 절에 사용
+2: bjdcd (법정동코드)
+3: umdnm (읍면동명) ← WHERE 절에 사용
+4: jibun (지번)
+5: bonbun (본번)
+6: bubun (부번)
+7: 대지권면적
+8: 전용면적 ← 면적
+9: 계약년월일
+10: 계약년월 ← YYYYMM 형식
+11: 계약일
+12: 보증금
+13: 월세
+14: 건축년도 ← 소수점 제거 필요 (CASE 문 사용)
+15: 건물명 (도로명)
+16: 계약기간 ← YYYYMM~YYYYMM 형식
+17: 계약구분
+18: 갱신요구권사용
+19: 종전계약보증금
+20: 종전계약월세
+21: 층정보 ← 주택유형 저장되어 있어 "-"로 표시
+22: created_at (생성일시)
+```
+
+#### 건축년도 특수 처리 (⚠️ 필수)
+```sql
+CASE
+    WHEN "{col_names[14]}" IS NULL OR "{col_names[14]}" = '' THEN NULL
+    WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\.?[0-9]*$' THEN
+        CASE
+            WHEN CAST("{col_names[14]}" AS FLOAT) BETWEEN 1800 AND 2200
+            THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER)
+            ELSE NULL
+        END
+    ELSE NULL
+END as 건축년도
+```
+
+#### 모달 쿼리 ORDER BY
+```sql
+ORDER BY "{col_names[10]}" DESC,
+         CAST(NULLIF("{col_names[11]}", '') AS INTEGER) DESC NULLS LAST
+```
 
 ### 4. officetel_rent_transactions (오피스텔 전월세)
-- 주요 컬럼: sggcd, sggnm, umdnm, jibun, offinm, excluusear, floor, buildyear, dealyear, dealmonth, dealday, deposit, monthlyrent, contracttype, contractterm, predeposit, premonthlyrent, userrright
-- 데이터 건수: 약 182만 건
-- **계약기간(contractterm) 형식**: `YY.MM~YY.MM` (예: `25.07~26.07`)
+
+**데이터 건수**: 약 182만 건
+**계약기간 형식**: `YY.MM~YY.MM` (예: `25.07~26.07`)
+
+#### 컬럼 구조 (인덱스 기준)
+```
+0: unique_key (고유키)
+1: sggcd (시군구코드) ← WHERE 절에 사용
+2: sggnm (시군구명)
+3: umdnm (읍면동명) ← WHERE 절에 사용
+4: jibun (지번)
+5: offinm (오피스텔명) ← 건물명
+6: excluusear (전용면적) ← 면적
+7: floor (층)
+8: buildyear (건축년도)
+9: dealyear (계약년) ← 계약년월 생성에 사용
+10: dealmonth (계약월) ← 계약년월 생성에 사용
+11: dealday (계약일)
+12: deposit (보증금)
+13: monthlyrent (월세)
+14: contracttype (계약구분)
+15: contractterm (계약기간) ← YY.MM~YY.MM 형식
+16: predeposit (종전계약보증금)
+17: premonthlyrent (종전계약월세)
+18: userrright (갱신요구권사용)
+```
+
+#### 모달 쿼리 ORDER BY
+```sql
+ORDER BY CONCAT(
+    LPAD(COALESCE(NULLIF("{col_names[9]}", ''), ''), 4, '0'),
+    LPAD(COALESCE(NULLIF("{col_names[10]}", ''), ''), 2, '0')
+) DESC, CAST(NULLIF("{col_names[11]}", '') AS INTEGER) DESC NULLS LAST
+```
+
+### 5. officetel_standard_price (오피스텔 기준시가)
+
+**데이터 용도**: 오피스텔 전월세 보증금의 기준시가 126% 초과 여부 판단
+
+#### 컬럼 구조
+```
+법정동코드 (TEXT): 시군구코드(5자리) + 법정동코드(5자리), 총 10자리
+번지 (TEXT): 지번의 본번 부분
+호 (TEXT): 지번의 부번 부분 (없으면 '0')
+상가건물층주소 (TEXT): 층수 (숫자)
+건물층구분코드 (TEXT): '지상층' 또는 '지하층'
+전용면적 (TEXT): 전용면적 (㎡)
+공유면적 (TEXT): 공유면적 (㎡)
+고시가격 (TEXT): 면적당 기준시가 (원/㎡)
+```
+
+#### 실거래가 매칭 로직
+오피스텔 전월세 실거래가와 기준시가를 매칭하기 위한 조건:
+
+1. **법정동코드 매칭**: `LEFT(sp.법정동코드, 5) = rent.sggcd` (시군구 코드 5자리)
+2. **지번 매칭**:
+   - 실거래가 지번이 `904-1`인 경우 → 번지 `904`, 호 `1`
+   - 실거래가 지번이 `904`인 경우 → 번지 `904`, 호 `0`
+   ```sql
+   sp.번지::TEXT = SPLIT_PART(rent.jibun, '-', 1)
+   AND (
+       (NULLIF(SPLIT_PART(rent.jibun, '-', 2), '') IS NULL AND sp.호::TEXT = '0')
+       OR sp.호::TEXT = NULLIF(SPLIT_PART(rent.jibun, '-', 2), '')
+   )
+   ```
+3. **층 매칭**:
+   - 실거래가 floor가 음수 → 기준시가 `건물층구분코드 = '지하층'`, `상가건물층주소 = ABS(floor)`
+   - 실거래가 floor가 0 이상 → 기준시가 `건물층구분코드 = '지상층'`, `상가건물층주소 = floor`
+4. **면적 매칭**: `sp.전용면적::FLOAT = rent.excluusear::FLOAT` (완전 일치)
+
+#### 기준시가 계산
+```
+1. 면적당 기준시가 = 고시가격 (원/㎡)
+2. 면적 계 = 전용면적 + 공유면적
+3. 기준시가 총액 = 고시가격 × 면적 계
+4. 기준시가의 126% = 기준시가 총액 × 1.26
+```
+
+#### 보증금 색상 코딩
+- **초록색**: 보증금 ≤ 기준시가의 126% (정상)
+- **빨간색**: 보증금 > 기준시가의 126% (초과)
+
+#### 툴팁 내용
+보증금에 마우스를 올리면 다음 정보를 표시:
+```
+면적당 기준시가: {고시가격}원/㎡
+전용면적: {전용면적}㎡
+공유면적: {공유면적}㎡
+면적 계: {전용면적 + 공유면적}㎡
+기준시가: {기준시가 총액}
+기준시가의 126%: {기준시가 × 1.26}
+```
+
+#### 성능 최적화
+- `LEFT JOIN` 사용으로 단일 쿼리에서 기준시가 데이터 함께 조회
+- 실거래가 조회 속도에 영향 없음 (기준시가 데이터 없어도 정상 표시)
+- 프론트엔드에서 조건부 색상 적용 (기준시가 데이터 있을 때만)
+
+### 주요 차이점 요약
+
+| 항목 | 아파트 | 연립다세대 | 단독다가구 | 오피스텔 |
+|------|--------|-----------|-----------|----------|
+| 시군구코드 | col[1] | col[1] | col[1] | col[1] |
+| 읍면동명 | col[2] | col[2] | col[3] | col[3] |
+| 지번 | col[3] | col[3] | col[4] | col[4] |
+| 건물명 | col[4] | col[4] | col[15] | col[5] |
+| 면적 | col[5] | col[5] | col[8] | col[6] |
+| 층 | col[6] | col[11] | - | col[7] |
+| 건축년도 | col[7] | col[12] | col[14] (특수) | col[8] |
+| 계약년 | col[8] | col[6] | col[10] | col[9] |
+| 계약월 | col[9] | col[7] | col[10] | col[10] |
+| 계약일 | col[10] | col[8] | col[11] | col[11] |
+| 보증금 | col[11] | col[9] | col[12] | col[12] |
+| 월세 | col[12] | col[10] | col[13] | col[13] |
+| 계약기간 형식 | YY.MM~YY.MM | YY.MM~YY.MM | YYYYMM~YYYYMM | YY.MM~YY.MM |
 
 ## 사용 방법
 
@@ -323,6 +546,88 @@ has_more = any(count == page_size for count in result_counts)
 - 예: 아파트 20건, 연립다세대 5건 조회 → 아파트는 더 있을 수 있지만 연립다세대는 더 없음
 
 ## 최근 업데이트 내역
+
+### 2025-11-05 (v2.4)
+- **오피스텔 기준시가 매칭률 대폭 개선**: INTEGER 변환 + Regex 필터로 데이터 품질 문제 해결
+  - **문제 1 - 패딩 불일치**: 기준시가 `번지=0094`, `호=0208` (앞자리 0 패딩) vs 실거래가 `지번=94-208` → TEXT 비교로 매칭 실패
+  - **해결 1 - INTEGER 변환**: `sp.번지::INTEGER = SPLIT_PART(rent.jibun, '-', 1)::INTEGER`로 패딩 무시
+    - 예: `0094` → `94`, `0208` → `208`로 정규화되어 비교
+  - **문제 2 - 비숫자 데이터**: `상가건물층주소` 컬럼에 "00C3" 같은 16진수 값 존재 → `::INTEGER` 변환 시 PostgreSQL 에러
+  - **해결 2 - Regex 사전 필터링**: `sp.상가건물층주소 ~ '^[0-9]+$'`로 숫자만 선택
+    - PostgreSQL Regex 패턴 `^[0-9]+$`: 전체 문자열이 0~9 숫자로만 구성
+    - 비숫자 값 사전 제거로 INTEGER 변환 에러 방지
+  - **최종 JOIN 조건**:
+    ```sql
+    LEFT JOIN officetel_standard_price sp ON
+        LEFT(sp.법정동코드, 5) = rent.sggcd
+        AND sp.번지 ~ '^[0-9]+$' AND sp.번지::INTEGER = SPLIT_PART(rent.jibun, '-', 1)::INTEGER
+        AND sp.호 ~ '^[0-9]+$' AND sp.호::INTEGER = NULLIF(SPLIT_PART(rent.jibun, '-', 2), '')::INTEGER
+        AND sp.상가건물층주소 ~ '^[0-9]+$'
+        AND (층 매칭 조건...)
+        AND sp.전용면적::FLOAT = rent.excluusear::FLOAT
+    ```
+  - **개선 효과**:
+    - 신림동 94-208 사례: 기준시가 1~8층 데이터(91건) 존재, 실거래가 2~8층(316건) 모두 매칭 성공
+    - 매칭률 83.1% → 예상 95%+ 향상
+  - **파일**: `app.py:1309-1311 (메인 쿼리), 1736-1738 (모달 쿼리)`
+- **오피스텔 기준시가 툴팁 완전 재구현**: CSS pseudo-element → JavaScript DOM 방식
+  - **문제**: CSS `content: attr(data-tooltip)`로는 `\n` 개행이 표시되지 않아 검은 라인만 보임
+    - CSS `white-space: pre`, `pre-line` 모두 `attr()` 함수와 호환 불가
+  - **해결**: JavaScript로 실제 DOM 요소(`<div>`) 생성 및 `innerHTML`로 `<br>` 태그 렌더링
+  - **핵심 함수**:
+    - `createTooltip()`: 툴팁 `<div>` 생성 및 `position: fixed` 스타일 적용
+    - `showTooltip(target)`: 툴팁 위치 계산 (대상 위/아래, 화면 경계 체크) 및 표시
+    - `hideTooltip()`: 툴팁 숨김
+  - **이벤트 처리**:
+    - `mouseover`: 즉시 툴팁 표시 (딜레이 없음)
+    - `mouseout`: 클릭 고정 상태 아니면 숨김
+    - `click`: 툴팁 고정/해제 토글 (`tooltip-active` 클래스)
+  - **UX 개선**:
+    - 6줄 내용 정상 표시: 면적당 기준시가, 전용/공유면적, 면적 계, 기준시가, 126%
+    - 화면 밖으로 나가면 자동 위치 조정 (위 → 아래, 좌/우 경계)
+    - 여러 툴팁 동시 표시 방지 (다른 툴팁 자동 닫힘)
+  - **파일**: `static/js/main.js:47-82 (HTML 생성), 904-1013 (이벤트), static/css/style.css:527-530 (스타일)`
+- **오피스텔 모달 정렬 순서 수정**: 최신순(계약년월 DESC) 표시
+  - **문제**: `DISTINCT ON (rent.id)`로 중복 제거 시 `ORDER BY id`가 우선되어 임의 순서 표시
+  - **해결**: 서브쿼리 패턴으로 중복 제거 후 재정렬
+    ```sql
+    SELECT * FROM (
+        SELECT DISTINCT ON (rent.id) ..., dealyear as dealyear_sort, dealmonth as dealmonth_sort, ...
+        ORDER BY rent.id, rent.dealyear DESC, rent.dealmonth DESC, ...
+    ) sub
+    ORDER BY dealyear_sort DESC, dealmonth_sort DESC, dealday_sort DESC
+    ```
+  - **파일**: `app.py:1710-1754`
+
+### 2025-11-05 (v2.3)
+- (이전 버전, v2.4로 통합됨)
+
+### 2025-11-05 (v2.2)
+- **오피스텔 기준시가 검증 기능 추가**: 보증금이 기준시가의 126%를 초과하는지 실시간 표시
+  - officetel_standard_price 테이블과 실거래가 데이터를 LEFT JOIN으로 매칭
+  - 복잡한 매칭 로직: 법정동코드(5자리), 지번(번지/호 분리), 층(지상/지하), 전용면적 완전 일치
+  - 보증금 색상 코딩: 초록색(126% 이하), 빨간색(126% 초과)
+  - 마우스 오버 시 상세 계산 툴팁 표시:
+    - 면적당 기준시가, 전용면적, 공유면적, 면적 계
+    - 기준시가 총액, 기준시가의 126%
+  - 성능 최적화: 단일 쿼리로 조회하여 속도 저하 없음
+  - 메인 테이블과 모달 테이블 모두 적용
+  - 오피스텔 데이터만 적용 (다른 유형은 변경 없음)
+- **README.md 문서화**: officetel_standard_price 테이블 구조 및 매칭 로직 상세 설명
+
+### 2025-11-05 (v2.1)
+- **모달 ORDER BY 절 수정**: PostgreSQL 별칭 참조 오류 해결
+  - 문제: ORDER BY에서 SELECT 별칭(계약일, 계약년월)을 직접 사용하여 "column does not exist" 오류 발생
+  - 해결: 원본 컬럼명을 ORDER BY에서 직접 사용하도록 수정
+  - 단독다가구: `"{col_names[10]}" DESC, CAST(NULLIF("{col_names[11]}", '') AS INTEGER) DESC`
+  - 연립다세대: `CONCAT(...col[6], col[7]) DESC, CAST(NULLIF("{col_names[8]}", '') AS INTEGER) DESC`
+  - 오피스텔: `CONCAT(...col[9], col[10]) DESC, CAST(NULLIF("{col_names[11]}", '') AS INTEGER) DESC`
+  - 아파트: `CONCAT(...col[8], col[9]) DESC, CAST(NULLIF("{col_names[10]}", '') AS INTEGER) DESC`
+- **README 스키마 문서화**: 4가지 주택 유형의 완전한 컬럼 구조 문서화
+  - 각 테이블별 전체 컬럼 인덱스와 용도 명시
+  - 모달 쿼리 ORDER BY 예시 추가
+  - 주요 차이점 요약 테이블 추가
+  - 향후 컬럼 인덱스 혼동 방지
 
 ### 2025-11-05 (v2.0)
 - **계약만기시기 필수값 변경**: 드롭다운으로 변경 및 필수 입력 항목으로 지정

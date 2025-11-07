@@ -8,138 +8,7 @@
     <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
     <link rel="stylesheet" href="{{ url_for('static', filename='css/table-fix.css') }}">
     <style>
-        /* 테이블 컬럼 너비 강제 적용 */
-        table th:nth-child(5), table td:nth-child(5) {
-            width: 80px !important;
-            max-width: 80px !important;
-            min-width: 80px !important;
-        }
-        table th:nth-child(6), table td:nth-child(6) {
-            width: 170px !important;
-            max-width: 170px !important;
-            min-width: 170px !important;
-        }
-
-        /* 건물명 클릭 가능 스타일 */
-        .building-name-clickable {
-            color: var(--primary-color);
-            cursor: pointer;
-            text-decoration: underline;
-        }
-
-        .building-name-clickable:hover {
-            color: #1d4ed8;
-            background: var(--hover-bg);
-        }
-
-        /* 모달 스타일 */
-        .modal {
-            position: fixed;
-            z-index: 1000;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.5);
-            display: flex;
-            justify-content: center;
-            align-items: center;
-        }
-
-        .modal-content {
-            background-color: var(--card-bg);
-            margin: 20px;
-            padding: 0;
-            border-radius: 12px;
-            max-width: 95vw;
-            max-height: 90vh;
-            overflow: hidden;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.3);
-        }
-
-        .modal-header {
-            padding: 20px 30px;
-            background: var(--hover-bg);
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-        }
-
-        .modal-header h3 {
-            margin: 0;
-            color: var(--text-color);
-            font-size: 18px;
-            font-weight: 600;
-        }
-
-        .modal-close {
-            font-size: 28px;
-            font-weight: bold;
-            cursor: pointer;
-            color: var(--text-secondary);
-            line-height: 1;
-        }
-
-        .modal-close:hover {
-            color: var(--text-color);
-        }
-
-        .modal-body {
-            padding: 20px;
-            max-height: 70vh;
-            overflow-y: auto;
-        }
-
-        .modal-loading {
-            text-align: center;
-            padding: 40px;
-        }
-
-        .modal-error {
-            padding: 16px;
-            background: #fee2e2;
-            color: #991b1b;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            border-left: 4px solid var(--danger-color);
-        }
-
-        .modal-table-container {
-            overflow-x: auto;
-            border-radius: 8px;
-            border: 1px solid var(--border-color);
-        }
-
-        #modal-results-table {
-            width: 100%;
-            border-collapse: collapse;
-            font-size: 12px;
-            table-layout: fixed;
-            min-width: 1380px;
-        }
-
-        #modal-results-table th,
-        #modal-results-table td {
-            padding: 8px 6px;
-            border-bottom: 1px solid var(--border-color);
-            text-align: left;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        #modal-results-table th {
-            background: var(--hover-bg);
-            font-weight: 600;
-            position: sticky;
-            top: 0;
-            z-index: 10;
-        }
-
-        #modal-results-table tbody tr:hover {
-            background: var(--hover-bg);
-        }
+        /* 테이블 컬럼 너비는 style.css에서 관리 */
     </style>
 </head>
 <body>
@@ -147,6 +16,20 @@
         <header>
             <h1>전월세 실거래가 조회</h1>
         </header>
+
+        <!-- 건물 검색 (자동완성) -->
+        <div class="building-search-section">
+            <h2>🏢 건물 검색</h2>
+            <div class="building-autocomplete-container">
+                <input
+                    type="text"
+                    id="building-search-input"
+                    placeholder="읍면동+지번 입력 (예: 도곡동 544-5)"
+                    autocomplete="off">
+                <div id="building-search-results" class="autocomplete-results" style="display: none;"></div>
+            </div>
+            <small class="search-hint">* 읍면동명과 지번을 입력하면 건물 목록이 나타납니다. 클릭하여 상세 정보를 확인하세요.</small>
+        </div>
 
         <div class="filter-section">
             <h2>검색 필터</h2>
@@ -219,6 +102,17 @@
                     <input type="number" id="area-max" placeholder="예: 150">
                 </div>
 
+                <!-- 건축년도 범위 -->
+                <div class="filter-item">
+                    <label for="build-year-min">최소 건축년도</label>
+                    <input type="number" id="build-year-min" placeholder="예: 2000">
+                </div>
+
+                <div class="filter-item">
+                    <label for="build-year-max">최대 건축년도</label>
+                    <input type="number" id="build-year-max" placeholder="예: 2023">
+                </div>
+
                 <!-- 보증금 범위 -->
                 <div class="filter-item">
                     <label for="deposit-min">최소 보증금 (만원)</label>
@@ -239,17 +133,6 @@
                 <div class="filter-item">
                     <label for="rent-max">최대 월세 (만원)</label>
                     <input type="number" id="rent-max" placeholder="예: 300">
-                </div>
-
-                <!-- 건축년도 범위 -->
-                <div class="filter-item">
-                    <label for="build-year-min">최소 건축년도</label>
-                    <input type="number" id="build-year-min" placeholder="예: 2000">
-                </div>
-
-                <div class="filter-item">
-                    <label for="build-year-max">최대 건축년도</label>
-                    <input type="number" id="build-year-max" placeholder="예: 2023">
                 </div>
             </div>
 
@@ -281,6 +164,7 @@
                             <th>시군구</th>
                             <th>읍면동리</th>
                             <th>지번</th>
+                            <th>동·호명<span class="unit-info-icon">?</span></th>
                             <th>건물명</th>
                             <th>층</th>
                             <th>면적</th>
@@ -299,7 +183,7 @@
                     </thead>
                     <tbody>
                         <tr>
-                            <td colspan="19" class="no-data">검색 조건을 입력하고 검색 버튼을 클릭해주세요</td>
+                            <td colspan="20" class="no-data">검색 조건을 입력하고 검색 버튼을 클릭해주세요</td>
                         </tr>
                     </tbody>
                 </table>
@@ -324,29 +208,25 @@
                     <table id="modal-results-table">
                         <thead>
                             <tr>
-                                <th>구분</th>
-                                <th>시도</th>
-                                <th>시군구</th>
-                                <th>읍면동리</th>
-                                <th>지번</th>
-                                <th>층</th>
-                                <th>면적</th>
-                                <th>전월세구분</th>
-                                <th>보증금</th>
-                                <th>월세</th>
-                                <th>계약년월</th>
-                                <th>계약일</th>
-                                <th>건축년도</th>
-                                <th>계약구분</th>
-                                <th>계약기간</th>
-                                <th>종전계약보증금</th>
-                                <th>종전계약월세</th>
-                                <th>갱신요구권사용</th>
+                                <th style="width: 80px;">계약년월</th>
+                                <th style="width: 50px;">계약일</th>
+                                <th style="width: 90px;">동·호명<span class="unit-info-icon">?</span></th>
+                                <th style="width: 50px;">층</th>
+                                <th style="width: 70px;">면적</th>
+                                <th style="width: 45px;">구분</th>
+                                <th style="width: 80px;">보증금</th>
+                                <th style="width: 60px;">월세</th>
+                                <th style="width: 70px;">건축년도</th>
+                                <th style="width: 70px;">계약구분</th>
+                                <th style="width: 130px;">계약기간</th>
+                                <th style="width: 80px;">종전보증금</th>
+                                <th style="width: 70px;">종전월세</th>
+                                <th style="width: 80px;">갱신권사용</th>
                             </tr>
                         </thead>
                         <tbody>
                             <tr>
-                                <td colspan="18" class="no-data">건물명을 클릭하여 해당 건물의 실거래가를 조회하세요</td>
+                                <td colspan="14" class="no-data">건물명을 클릭하여 해당 건물의 실거래가를 조회하세요</td>
                             </tr>
                         </tbody>
                     </table>

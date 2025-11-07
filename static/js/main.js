@@ -23,11 +23,15 @@ function debounce(func, wait) {
 
 // 보증금/월세 포맷 함수 (만원 단위 → 억/만원 표시)
 function formatPrice(value) {
-    if (!value || value === '0' || value === 0) return '';
+    // 값이 없으면 빈 문자열 반환
+    if (!value && value !== 0 && value !== '0') return '';
 
     // 쉼표 제거하고 숫자로 변환
     const num = parseInt(String(value).replace(/,/g, ''));
     if (isNaN(num)) return '';
+
+    // 0이면 "0" 반환
+    if (num === 0) return '0';
 
     const eok = Math.floor(num / 10000); // 억 단위
     const man = num % 10000; // 만원 단위
@@ -42,6 +46,95 @@ function formatPrice(value) {
         // 만원 단위만 있는 경우: "8,000"
         return man.toLocaleString();
     }
+}
+
+// 오피스텔 보증금 포맷 (기준시가 기반 색상 + 툴팁)
+function formatDepositWithStandardPrice(row) {
+    const depositValue = formatPrice(row.보증금);
+    if (!depositValue) return '';
+
+    // 기준시가 데이터가 없으면 일반 포맷으로 반환
+    if (!row.기준시가_126퍼센트) {
+        return depositValue;
+    }
+
+    // 보증금 (만원) 값을 원 단위로 변환
+    const depositNum = parseInt(String(row.보증금).replace(/,/g, '')) * 10000; // 만원 -> 원
+    const threshold = parseFloat(row.기준시가_126퍼센트);
+
+    // 126% 기준으로 색상 결정
+    const isWithinThreshold = depositNum <= threshold;
+    const color = isWithinThreshold ? '#10b981' : '#ef4444'; // green : red
+
+    // 툴팁 내용 생성 (HTML 형식)
+    const unitPrice = parseFloat(row.기준시가_면적당가격 || 0);
+    const exclusiveArea = parseFloat(row.기준시가_전용면적 || 0);
+    const sharedArea = parseFloat(row.기준시가_공유면적 || 0);
+    const totalArea = parseFloat(row.기준시가_면적계 || 0);
+    const standardPrice = parseFloat(row.기준시가_총액 || 0);
+
+    const tooltipContent = `
+        면적당 기준시가: ${unitPrice.toLocaleString()}원/㎡<br>
+        전용면적: ${exclusiveArea.toFixed(2)}㎡<br>
+        공유면적: ${sharedArea.toFixed(2)}㎡<br>
+        면적 계: ${totalArea.toFixed(2)}㎡<br>
+        기준시가: ${formatPrice(Math.round(standardPrice / 10000))}<br>
+        기준시가의 126%: ${formatPrice(Math.round(threshold / 10000))}
+    `;
+
+    return `<span class="deposit-with-standard-price" style="color: ${color}; font-weight: 600;" data-tooltip-html="${tooltipContent.trim()}">${depositValue}</span>`;
+}
+
+// 아파트/연립다세대 보증금 포맷 (공동주택가격 기반 색상 + 툴팁)
+function formatDepositWithApartmentPrice(row) {
+    const depositValue = formatPrice(row.보증금);
+    if (!depositValue) return '';
+
+    // 공동주택가격 데이터가 없으면 일반 포맷으로 반환
+    if (!row.공동주택가격_126퍼센트) {
+        return depositValue;
+    }
+
+    // 보증금 (만원) 값을 원 단위로 변환
+    const depositNum = parseInt(String(row.보증금).replace(/,/g, '')) * 10000; // 만원 -> 원
+    const threshold = parseFloat(row.공동주택가격_126퍼센트);
+
+    // 126% 기준으로 색상 결정
+    const isWithinThreshold = depositNum <= threshold;
+    const color = isWithinThreshold ? '#10b981' : '#ef4444'; // green : red
+
+    // 툴팁 내용 생성 (HTML 형식)
+    const aptPrice = parseFloat(row.공동주택가격 || 0);
+    const tooltipContent = `
+        공동주택가격: ${formatPrice(Math.round(aptPrice / 10000))}<br>
+        공동주택가격의 126%: ${formatPrice(Math.round(threshold / 10000))}
+    `;
+
+    return `<span class="deposit-with-apartment-price" style="color: ${color}; font-weight: 600;" data-tooltip-html="${tooltipContent.trim()}">${depositValue}</span>`;
+}
+
+// 호실 정보 포맷 함수 (툴팁 지원)
+function formatUnitInfo(row) {
+    const unitStr = row.동호명 || '-';
+
+    // '-'인 경우 그대로 반환
+    if (unitStr === '-') {
+        return '-';
+    }
+
+    // 전체 목록이 있으면 항상 툴팁 추가 (has_more 여부와 상관없이)
+    if (row.동호명_전체목록 && row.동호명_전체목록.length > 0) {
+        const tooltipText = row.동호명_전체목록.join(', ');
+        return `<span class="unit-with-tooltip" title="${tooltipText}">${unitStr}</span>`;
+    }
+
+    // 쉼표가 포함된 경우 (여러 호실) 툴팁 추가
+    if (unitStr.includes(',')) {
+        return `<span class="unit-with-tooltip" title="${unitStr}">${unitStr}</span>`;
+    }
+
+    // 일반 텍스트 반환
+    return unitStr;
 }
 
 // DOM 요소 초기화 및 캐싱
@@ -101,6 +194,7 @@ document.addEventListener('DOMContentLoaded', function() {
     loadSidos();
     populateContractEndOptions();
     setupInfiniteScroll();
+    initBuildingSearch();
 
     // 검색 버튼 이벤트 리스너
     const searchBtn = document.getElementById('search-btn');
@@ -536,17 +630,28 @@ function displayResults(data, append = false) {
             const tr = document.createElement('tr');
             const badgeClass = getBadgeClass(row.구분);
 
+            // 보증금 포맷 선택: 오피스텔은 기준시가, 아파트/연립다세대는 공동주택가격
+            let depositHTML;
+            if (row.구분 === '오피스텔') {
+                depositHTML = formatDepositWithStandardPrice(row);
+            } else if (row.구분 === '아파트' || row.구분 === '연립다세대') {
+                depositHTML = formatDepositWithApartmentPrice(row);
+            } else {
+                depositHTML = formatPrice(row.보증금);
+            }
+
             tr.innerHTML = `
                 <td><span class="badge ${badgeClass}">${row.구분}</span></td>
                 <td>${row.시도 || ''}</td>
                 <td>${row.시군구 || ''}</td>
                 <td>${row.읍면동리 || ''}</td>
                 <td>${row.지번 || ''}</td>
-                <td>${row.단지명 || row.건물명 || ''}</td>
+                <td class="unit-info-cell">${formatUnitInfo(row)}</td>
+                <td><span class="building-name-clickable" data-building-name="${row.단지명 || row.건물명 || ''}" data-property-type="${row.구분 || ''}" data-sigungu-code="${row.시군구코드 || ''}" data-umd-name="${row.읍면동리 || ''}" data-jibun="${row.지번 || ''}" data-sido="${row.시도 || ''}" data-sigungu="${row.시군구 || ''}">${row.단지명 || row.건물명 || ''}</span></td>
                 <td>${row.층 || ''}</td>
                 <td>${row.면적 || ''}</td>
                 <td>${getContractTypeBadge(row.월세)}</td>
-                <td>${formatPrice(row.보증금)}</td>
+                <td>${depositHTML}</td>
                 <td>${formatPrice(row.월세)}</td>
                 <td>${row.계약년월 || ''}</td>
                 <td>${row.계약일 || ''}</td>
@@ -570,6 +675,17 @@ function displayResults(data, append = false) {
 
             data.data.forEach(row => {
                 const badgeClass = getBadgeClass(row.구분);
+
+                // 보증금 포맷 선택: 오피스텔은 기준시가, 아파트/연립다세대는 공동주택가격
+                let depositHTML;
+                if (row.구분 === '오피스텔') {
+                    depositHTML = formatDepositWithStandardPrice(row);
+                } else if (row.구분 === '아파트' || row.구분 === '연립다세대') {
+                    depositHTML = formatDepositWithApartmentPrice(row);
+                } else {
+                    depositHTML = formatPrice(row.보증금);
+                }
+
                 rowsHTML += `
                     <tr>
                         <td><span class="badge ${badgeClass}">${row.구분}</span></td>
@@ -577,11 +693,12 @@ function displayResults(data, append = false) {
                         <td>${row.시군구 || ''}</td>
                         <td>${row.읍면동리 || ''}</td>
                         <td>${row.지번 || ''}</td>
-                        <td>${row.단지명 || row.건물명 || ''}</td>
+                        <td class="unit-info-cell">${formatUnitInfo(row)}</td>
+                        <td><span class="building-name-clickable" data-building-name="${row.단지명 || row.건물명 || ''}" data-property-type="${row.구분 || ''}" data-sigungu-code="${row.시군구코드 || ''}" data-umd-name="${row.읍면동리 || ''}" data-jibun="${row.지번 || ''}" data-sido="${row.시도 || ''}" data-sigungu="${row.시군구 || ''}">${row.단지명 || row.건물명 || ''}</span></td>
                         <td>${row.층 || ''}</td>
                         <td>${row.면적 || ''}</td>
                         <td>${getContractTypeBadge(row.월세)}</td>
-                        <td>${formatPrice(row.보증금)}</td>
+                        <td>${depositHTML}</td>
                         <td>${formatPrice(row.월세)}</td>
                         <td>${row.계약년월 || ''}</td>
                         <td>${row.계약일 || ''}</td>
@@ -723,4 +840,477 @@ function resetFilters() {
     hasMoreData = true;
     currentFilters = null;
     totalCount = 0;
+}
+
+// ============ 건물별 실거래가 모달 기능 ============
+
+// 건물명 클릭 이벤트 위임
+document.addEventListener('click', function(e) {
+    if (e.target && e.target.classList.contains('building-name-clickable')) {
+        const buildingName = e.target.dataset.buildingName;
+        const propertyType = e.target.dataset.propertyType;
+        const sigunguCode = e.target.dataset.sigunguCode;
+        const umdName = e.target.dataset.umdName;
+        const jibun = e.target.dataset.jibun;
+        const sido = e.target.dataset.sido;
+        const sigungu = e.target.dataset.sigungu;
+
+        openBuildingModal(buildingName, propertyType, sigunguCode, umdName, jibun, sido, sigungu);
+    }
+});
+
+// 모달 열기
+function openBuildingModal(buildingName, propertyType, sigunguCode, umdName, jibun, sido, sigungu) {
+    const modal = document.getElementById('building-modal');
+    const modalBuildingName = document.getElementById('modal-building-name');
+    const modalLoading = document.getElementById('modal-loading');
+    const modalError = document.getElementById('modal-error');
+
+    // 주택 유형 뱃지 생성
+    const typeBadgeColors = {
+        '아파트': '#3b82f6',
+        '연립다세대': '#10b981',
+        '오피스텔': '#f59e0b',
+        '단독다가구': '#8b5cf6'
+    };
+    const badgeColor = typeBadgeColors[propertyType] || '#6b7280';
+    const typeBadge = `<span style="display: inline-block; background: ${badgeColor}; color: white; padding: 4px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; margin-right: 12px;">${propertyType}</span>`;
+
+    // 모달 제목 설정 (주택 유형 뱃지 + 주소 + 건물명)
+    const addressText = `${sido} ${sigungu} ${umdName} ${jibun}`;
+    const fullText = buildingName ? `${addressText} ${buildingName}` : addressText;
+    modalBuildingName.innerHTML = typeBadge + fullText;
+
+    // 모달 표시
+    modal.style.display = 'flex';
+
+    // 이전 데이터 즉시 초기화 (로딩 중 이전 데이터가 보이지 않도록)
+    const modalTableBody = document.querySelector('#modal-results-table tbody');
+    modalTableBody.innerHTML = '<tr><td colspan="14" class="no-data">조회 중...</td></tr>';
+
+    // 로딩 표시
+    modalLoading.style.display = 'block';
+    modalError.style.display = 'none';
+
+    // API 호출
+    fetch('/api/building-transactions', {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+            building_name: buildingName,
+            property_type: propertyType,
+            sigungu_code: sigunguCode,
+            umd_name: umdName,
+            jibun: jibun
+        })
+    })
+    .then(response => response.json())
+    .then(data => {
+        modalLoading.style.display = 'none';
+
+        if (data.success) {
+            displayBuildingTransactions(data.data, propertyType);
+        } else {
+            modalError.textContent = data.error || '데이터를 불러오는 중 오류가 발생했습니다.';
+            modalError.style.display = 'block';
+        }
+    })
+    .catch(error => {
+        modalLoading.style.display = 'none';
+        modalError.textContent = '서버 오류가 발생했습니다.';
+        modalError.style.display = 'block';
+        console.error('Error:', error);
+    });
+}
+
+// 모달 데이터 표시
+function displayBuildingTransactions(data, propertyType) {
+    const modalTableBody = document.querySelector('#modal-results-table tbody');
+
+    if (!data || data.length === 0) {
+        modalTableBody.innerHTML = '<tr><td colspan="14" class="no-data">데이터가 없습니다.</td></tr>';
+        return;
+    }
+
+    const rowsHTML = data.map(row => {
+        // 보증금 포맷 선택: 오피스텔은 기준시가, 아파트/연립다세대는 공동주택가격
+        let depositHTML;
+        if (propertyType === '오피스텔') {
+            depositHTML = formatDepositWithStandardPrice(row);
+        } else if (propertyType === '아파트' || propertyType === '연립다세대') {
+            depositHTML = formatDepositWithApartmentPrice(row);
+        } else {
+            depositHTML = formatPrice(row.보증금);
+        }
+
+        return `
+            <tr>
+                <td>${row.계약년월 || ''}</td>
+                <td>${row.계약일 || ''}</td>
+                <td class="unit-info-cell">${formatUnitInfo(row)}</td>
+                <td>${row.층 || ''}</td>
+                <td>${row.면적 || ''}</td>
+                <td>${getContractTypeBadge(row.월세)}</td>
+                <td>${depositHTML}</td>
+                <td>${formatPrice(row.월세)}</td>
+                <td>${row.건축년도 || ''}</td>
+                <td>${row.계약구분 || ''}</td>
+                <td>${getContractPeriodWithBadge(row.계약기간)}</td>
+                <td>${formatPrice(row.종전계약보증금)}</td>
+                <td>${formatPrice(row.종전계약월세)}</td>
+                <td>${row.갱신요구권사용 || ''}</td>
+            </tr>
+        `;
+    }).join('');
+
+    modalTableBody.innerHTML = rowsHTML;
+}
+
+// 모달 닫기
+document.querySelector('.modal-close').addEventListener('click', function() {
+    document.getElementById('building-modal').style.display = 'none';
+});
+
+// 모달 배경 클릭 시 닫기
+document.getElementById('building-modal').addEventListener('click', function(e) {
+    if (e.target === this) {
+        this.style.display = 'none';
+    }
+});
+
+// 툴팁 DOM 요소 생성 및 관리
+let tooltipElement = null;
+let currentTooltipTarget = null;
+
+function createTooltip() {
+    if (!tooltipElement) {
+        tooltipElement = document.createElement('div');
+        tooltipElement.className = 'custom-tooltip';
+        tooltipElement.style.cssText = `
+            position: fixed;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 12px 16px;
+            border-radius: 6px;
+            font-size: 12px;
+            line-height: 1.6;
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+            z-index: 10000;
+            pointer-events: none;
+            display: none;
+            min-width: 280px;
+            text-align: left;
+        `;
+        document.body.appendChild(tooltipElement);
+    }
+    return tooltipElement;
+}
+
+function showTooltip(target) {
+    const tooltip = createTooltip();
+    const htmlContent = target.getAttribute('data-tooltip-html');
+    if (!htmlContent) return;
+
+    tooltip.innerHTML = htmlContent;
+    tooltip.style.display = 'block';
+
+    // 위치 계산
+    const rect = target.getBoundingClientRect();
+    const tooltipRect = tooltip.getBoundingClientRect();
+
+    // 툴팁을 대상 위에 표시
+    let left = rect.left + (rect.width / 2) - (tooltipRect.width / 2);
+    let top = rect.top - tooltipRect.height - 8;
+
+    // 화면 밖으로 나가지 않도록 조정
+    if (left < 10) left = 10;
+    if (left + tooltipRect.width > window.innerWidth - 10) {
+        left = window.innerWidth - tooltipRect.width - 10;
+    }
+    if (top < 10) {
+        // 위에 공간이 없으면 아래에 표시
+        top = rect.bottom + 8;
+    }
+
+    tooltip.style.left = left + 'px';
+    tooltip.style.top = top + 'px';
+
+    currentTooltipTarget = target;
+}
+
+function hideTooltip() {
+    if (tooltipElement) {
+        tooltipElement.style.display = 'none';
+    }
+    currentTooltipTarget = null;
+}
+
+// 보증금 툴팁 이벤트 (hover + click) - 오피스텔 기준시가 & 아파트/연립다세대 공동주택가격
+document.addEventListener('mouseover', function(e) {
+    if (e.target && (e.target.classList.contains('deposit-with-standard-price') ||
+                     e.target.classList.contains('deposit-with-apartment-price'))) {
+        showTooltip(e.target);
+    }
+});
+
+document.addEventListener('mouseout', function(e) {
+    if (e.target && (e.target.classList.contains('deposit-with-standard-price') ||
+                     e.target.classList.contains('deposit-with-apartment-price'))) {
+        // 클릭으로 고정된 상태가 아니면 숨김
+        if (!e.target.classList.contains('tooltip-active')) {
+            hideTooltip();
+        }
+    }
+});
+
+document.addEventListener('click', function(e) {
+    if (e.target && (e.target.classList.contains('deposit-with-standard-price') ||
+                     e.target.classList.contains('deposit-with-apartment-price'))) {
+        e.stopPropagation();
+
+        // 다른 모든 활성화된 툴팁 닫기
+        document.querySelectorAll('.deposit-with-standard-price.tooltip-active, .deposit-with-apartment-price.tooltip-active').forEach(el => {
+            if (el !== e.target) {
+                el.classList.remove('tooltip-active');
+            }
+        });
+
+        // 현재 툴팁 토글
+        if (e.target.classList.contains('tooltip-active')) {
+            e.target.classList.remove('tooltip-active');
+            hideTooltip();
+        } else {
+            e.target.classList.add('tooltip-active');
+            showTooltip(e.target);
+        }
+    } else {
+        // 다른 곳 클릭 시 모든 툴팁 닫기
+        document.querySelectorAll('.deposit-with-standard-price.tooltip-active, .deposit-with-apartment-price.tooltip-active').forEach(el => {
+            el.classList.remove('tooltip-active');
+        });
+        hideTooltip();
+    }
+});
+
+
+// ============ 건물 검색 (자동완성) 기능 ============
+
+let searchTimeout = null;
+
+function initBuildingSearch() {
+    const searchInput = document.getElementById('building-search-input');
+    const resultsContainer = document.getElementById('building-search-results');
+
+    if (!searchInput || !resultsContainer) return;
+
+    // 입력 이벤트 리스너 (debounce 적용)
+    searchInput.addEventListener('input', function() {
+        const query = this.value.trim();
+
+        // 기존 타이머 취소
+        if (searchTimeout) {
+            clearTimeout(searchTimeout);
+        }
+
+        // 입력값이 2글자 미만이면 결과 숨김
+        if (query.length < 2) {
+            resultsContainer.style.display = 'none';
+            return;
+        }
+
+        // 300ms 후에 검색 실행 (debounce)
+        searchTimeout = setTimeout(() => {
+            searchBuildings(query);
+        }, 300);
+    });
+
+    // 입력창 외부 클릭시 결과 숨김
+    document.addEventListener('click', function(e) {
+        if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
+            resultsContainer.style.display = 'none';
+        }
+    });
+
+    // 입력창 포커스시 결과가 있으면 다시 표시
+    searchInput.addEventListener('focus', function() {
+        if (resultsContainer.children.length > 0 && this.value.trim().length >= 2) {
+            resultsContainer.style.display = 'block';
+        }
+    });
+}
+
+function searchBuildings(query) {
+    const resultsContainer = document.getElementById('building-search-results');
+
+    // 로딩 표시
+    resultsContainer.innerHTML = '<div class="autocomplete-loading">검색 중...</div>';
+    resultsContainer.style.display = 'block';
+
+    // API 호출
+    fetch(`/api/search-building?q=${encodeURIComponent(query)}`)
+        .then(response => response.json())
+        .then(data => {
+            if (data.success) {
+                displayBuildingResults(data.buildings);
+            } else {
+                resultsContainer.innerHTML = '<div class="autocomplete-no-results">검색 결과가 없습니다</div>';
+            }
+        })
+        .catch(error => {
+            console.error('건물 검색 오류:', error);
+            resultsContainer.innerHTML = '<div class="autocomplete-no-results">검색 중 오류가 발생했습니다</div>';
+        });
+}
+
+function displayBuildingResults(buildings) {
+    const resultsContainer = document.getElementById('building-search-results');
+
+    if (buildings.length === 0) {
+        resultsContainer.innerHTML = '<div class="autocomplete-no-results">검색 결과가 없습니다</div>';
+        return;
+    }
+
+    resultsContainer.innerHTML = '';
+
+    buildings.forEach(building => {
+        const item = document.createElement('div');
+        item.className = 'autocomplete-item';
+
+        // 주택 유형에 따른 클래스 설정
+        let propertyTypeClass = '';
+        let propertyTypeText = '';
+        switch(building.property_type) {
+            case '아파트':
+                propertyTypeClass = 'property-type-apt';
+                propertyTypeText = '아파트';
+                break;
+            case '연립다세대':
+                propertyTypeClass = 'property-type-villa';
+                propertyTypeText = '연립다세대';
+                break;
+            case '오피스텔':
+                propertyTypeClass = 'property-type-officetel';
+                propertyTypeText = '오피스텔';
+                break;
+            case '단독다가구':
+                propertyTypeClass = 'property-type-dagagu';
+                propertyTypeText = '단독다가구';
+                break;
+        }
+
+        item.innerHTML = `
+            <div class="autocomplete-item-header">
+                <span class="autocomplete-building-name">${building.building_name || '(건물명 없음)'}</span>
+                <span class="autocomplete-property-type ${propertyTypeClass}">${propertyTypeText}</span>
+            </div>
+            <div class="autocomplete-address">${building.full_address}</div>
+        `;
+
+        // 클릭 이벤트: 기존 모달 함수 사용
+        item.addEventListener('click', () => {
+            openBuildingModal(
+                building.building_name,
+                building.property_type,
+                building.sgg_code,
+                building.umd_name,
+                building.jibun,
+                building.sido,
+                building.sigungu
+            );
+            resultsContainer.style.display = 'none';
+            document.getElementById('building-search-input').value = '';
+        });
+
+        resultsContainer.appendChild(item);
+    });
+}
+
+function openBuildingDetailModal(building) {
+    const modal = document.getElementById('building-modal');
+    const modalBuildingName = document.getElementById('modal-building-name');
+    const modalLoading = document.getElementById('modal-loading');
+    const modalError = document.getElementById('modal-error');
+    const modalTableBody = document.querySelector('#modal-results-table tbody');
+
+    // 모달 제목 설정
+    modalBuildingName.textContent = building.building_name || building.full_address;
+
+    // 모달 표시
+    modal.style.display = 'block';
+    modalLoading.style.display = 'block';
+    modalError.style.display = 'none';
+    modalTableBody.innerHTML = '<tr><td colspan="14" class="no-data">조회 중...</td></tr>';
+
+    // API 호출하여 거래 내역 조회
+    const params = new URLSearchParams({
+        property_type: building.property_type,
+        sgg_code: building.sgg_code,
+        umd_name: building.umd_name,
+        jibun: building.jibun,
+        building_name: building.building_name || ''
+    });
+
+    fetch(`/api/building-transactions?${params.toString()}`)
+        .then(response => response.json())
+        .then(data => {
+            modalLoading.style.display = 'none';
+
+            if (data.success && data.transactions.length > 0) {
+                displayModalTransactions(data.transactions);
+            } else {
+                modalTableBody.innerHTML = '<tr><td colspan="14" class="no-data">거래 내역이 없습니다</td></tr>';
+            }
+        })
+        .catch(error => {
+            console.error('건물 거래 내역 조회 오류:', error);
+            modalLoading.style.display = 'none';
+            modalError.textContent = '거래 내역을 불러오는 중 오류가 발생했습니다.';
+            modalError.style.display = 'block';
+        });
+}
+
+function displayModalTransactions(transactions) {
+    const modalTableBody = document.querySelector('#modal-results-table tbody');
+    modalTableBody.innerHTML = '';
+
+    transactions.forEach(row => {
+        const tr = document.createElement('tr');
+
+        // 공동주택가격 기반 폰트 색상 결정
+        let depositColor = 'inherit';
+        if (row['공동주택가격'] && row['공동주택가격_126퍼센트']) {
+            const deposit = parseFloat(row['보증금'].replace(/,/g, '')) * 10000;
+            const threshold = row['공동주택가격_126퍼센트'];
+            depositColor = deposit < threshold ? '#4169e1' : 'inherit';
+        }
+
+        // 툴팁 메시지
+        let tooltipText = '';
+        if (row['공동주택가격']) {
+            const price = (row['공동주택가격'] / 10000).toFixed(0);
+            const threshold = (row['공동주택가격_126퍼센트'] / 10000).toFixed(0);
+            tooltipText = `공동주택가격: ${price}만원\n126%: ${threshold}만원`;
+        }
+
+        tr.innerHTML = `
+            <td>${row['계약년월'] || '-'}</td>
+            <td>${row['계약일'] || '-'}</td>
+            <td title="${row['동·호명'] || ''}">${row['동·호명'] || '-'}</td>
+            <td>${row['층'] || '-'}</td>
+            <td>${row['면적'] || '-'}</td>
+            <td>${row['전월세구분'] || '-'}</td>
+            <td style="color: ${depositColor};" title="${tooltipText}">${row['보증금'] || '-'}</td>
+            <td>${row['월세'] || '-'}</td>
+            <td>${row['건축년도'] || '-'}</td>
+            <td>${row['계약구분'] || '-'}</td>
+            <td>${row['계약기간'] || '-'}</td>
+            <td>${row['종전계약보증금'] || '-'}</td>
+            <td>${row['종전계약월세'] || '-'}</td>
+            <td>${row['갱신요구권사용'] || '-'}</td>
+        `;
+
+        modalTableBody.appendChild(tr);
+    });
 }

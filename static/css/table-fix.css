@@ -1,12 +1,1 @@
-/* 테이블 컬럼 너비 수정 - 우선순위 높음 */
-table th:nth-child(5), table td:nth-child(5) {
-    width: 50px !important;
-    max-width: 50px !important;
-    min-width: 50px !important;
-}
-
-table th:nth-child(6), table td:nth-child(6) {
-    width: 250px !important;
-    max-width: 250px !important;
-    min-width: 250px !important;
-}
+/* 테이블 컬럼 너비는 style.css에서 관리 - 이 파일은 비워둠 */
