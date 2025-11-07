@@ -14,7 +14,7 @@
             <h1>전월세 실거래가 조회</h1>
         </header>
 
-        <!-- 건물 검색 (자동완성) -->
+        <!-- 건물 검색 -->
         <div class="building-search-section">
             <h2>🏢 건물 검색</h2>
             <div class="building-autocomplete-container">
@@ -23,9 +23,10 @@
                     id="building-search-input"
                     placeholder="읍면동+지번 입력 (예: 도곡동 544-5)"
                     autocomplete="off">
+                <button type="button" id="building-search-btn" class="btn btn-primary" style="margin-left: 10px;">검색</button>
                 <div id="building-search-results" class="autocomplete-results" style="display: none;"></div>
             </div>
-            <small class="search-hint">* 읍면동명과 지번을 입력하면 건물 목록이 나타납니다. 클릭하여 상세 정보를 확인하세요.</small>
+            <small class="search-hint">* 읍면동명과 지번을 입력하고 검색 버튼을 클릭하세요.</small>
         </div>
 
         <div class="filter-section">

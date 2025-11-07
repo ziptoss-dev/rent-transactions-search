@@ -1411,48 +1411,38 @@ document.addEventListener('click', function(e) {
 });
 
 
-// ============ 건물 검색 (자동완성) 기능 ============
-
-let searchTimeout = null;
+// ============ 건물 검색 기능 ============
 
 function initBuildingSearch() {
     const searchInput = document.getElementById('building-search-input');
+    const searchBtn = document.getElementById('building-search-btn');
     const resultsContainer = document.getElementById('building-search-results');
 
-    if (!searchInput || !resultsContainer) return;
+    if (!searchInput || !searchBtn || !resultsContainer) return;
 
-    // 입력 이벤트 리스너 (debounce 적용)
-    searchInput.addEventListener('input', function() {
-        const query = this.value.trim();
+    // 검색 버튼 클릭 이벤트
+    searchBtn.addEventListener('click', function() {
+        const query = searchInput.value.trim();
 
-        // 기존 타이머 취소
-        if (searchTimeout) {
-            clearTimeout(searchTimeout);
-        }
-
-        // 입력값이 2글자 미만이면 결과 숨김
         if (query.length < 2) {
-            resultsContainer.style.display = 'none';
+            alert('읍면동명과 지번을 2글자 이상 입력해주세요.');
             return;
         }
 
-        // 300ms 후에 검색 실행 (debounce)
-        searchTimeout = setTimeout(() => {
-            searchBuildings(query);
-        }, 300);
+        searchBuildings(query);
+    });
+
+    // Enter 키로도 검색 가능
+    searchInput.addEventListener('keypress', function(e) {
+        if (e.key === 'Enter') {
+            searchBtn.click();
+        }
     });
 
     // 입력창 외부 클릭시 결과 숨김
     document.addEventListener('click', function(e) {
-        if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target)) {
+        if (!searchInput.contains(e.target) && !resultsContainer.contains(e.target) && !searchBtn.contains(e.target)) {
             resultsContainer.style.display = 'none';
-        }
-    });
-
-    // 입력창 포커스시 결과가 있으면 다시 표시
-    searchInput.addEventListener('focus', function() {
-        if (resultsContainer.children.length > 0 && this.value.trim().length >= 2) {
-            resultsContainer.style.display = 'block';
         }
     });
 }
