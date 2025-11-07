@@ -2991,7 +2991,7 @@ def get_owner_info():
             'numOfRows': 100,  # 1000 → 100으로 축소 (응답 크기 감소)
             'pageNo': 1,
             'key': api_key,
-            'domain': 'https://rent-transactions.ziptoss.com'  # 배포 URL 사용
+            'domain': 'https://rent-transactions.ziptoss.com/'  # 배포 URL (슬래시 포함)
         }
 
         # HTTP 헤더 설정 (완전한 브라우저처럼)
