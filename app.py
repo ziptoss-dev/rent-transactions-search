@@ -140,53 +140,7 @@ def load_region_codes():
 # 지역 코드 로드
 REGIONS = load_region_codes()
 
-# 건물명 캐시 로드 (자동완성 성능 최적화)
-def load_building_cache():
-    """건물명 목록을 메모리에 캐싱 (자동완성 성능 향상)"""
-    print("건물명 캐시 로딩 중...")
-    cache = {}  # {umd_name: [(sgg_code, jibun, building_name, property_type), ...]}
-
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    tables = [
-        ('apt_rent_transactions', 'aptnm', '아파트'),
-        ('villa_rent_transactions', 'mhousename', '연립다세대'),
-        ('officetel_rent_transactions', 'offinm', '오피스텔'),
-        ('dagagu_rent_transactions', 'NULL', '단독다가구')
-    ]
-
-    for table_name, building_col, property_type in tables:
-        print(f"  - {property_type} 테이블 로딩 중...")
-        query = f"""
-            SELECT DISTINCT sggcd, umdnm, jibun, {building_col} as building_name
-            FROM {table_name}
-            WHERE umdnm IS NOT NULL AND jibun IS NOT NULL
-        """
-        cursor.execute(query)
-
-        for row in cursor.fetchall():
-            umd_name = row['umdnm']
-            if umd_name not in cache:
-                cache[umd_name] = []
-
-            cache[umd_name].append({
-                'sgg_code': row['sggcd'],
-                'jibun': row['jibun'],
-                'building_name': row['building_name'],
-                'property_type': property_type
-            })
-
-    cursor.close()
-
-    # 각 읍면동별로 지번 순으로 정렬
-    for umd_name in cache:
-        cache[umd_name].sort(key=lambda x: x['jibun'])
-
-    print(f"건물명 캐시 로딩 완료: {len(cache)}개 읍면동, {sum(len(v) for v in cache.values())}건 데이터")
-    return cache
-
-BUILDING_CACHE = load_building_cache()
+# 건물명 캐시 제거 - DB 직접 쿼리로 변경 (Vercel cold start 최적화)
 
 def abbreviate_sido_name(sido_name):
     """시도명을 2글자로 축약"""
@@ -2678,7 +2632,7 @@ def get_building_transactions():
 
 @app.route('/api/search-building', methods=['GET'])
 def search_building():
-    """건물 검색 (읍면동+지번 자동완성) - 캐시 사용"""
+    """건물 검색 (읍면동+지번 자동완성) - DB 직접 쿼리"""
     try:
         query = request.args.get('q', '').strip()
 
@@ -2702,27 +2656,42 @@ def search_building():
         umd_name = match.group(1).strip()  # 정확한 읍면동명
         jibun_search = match.group(2).strip()  # 지번 검색어
 
-        # 캐시에서 검색 (DB 쿼리 대신)
+        # DB에서 직접 검색
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
         buildings = []
         seen = set()  # 중복 제거용
         MAX_RESULTS = 12  # 최대 결과 수
 
-        # 캐시에서 해당 읍면동의 건물 목록 가져오기
-        cached_buildings = BUILDING_CACHE.get(umd_name, [])
+        # 각 테이블에서 검색
+        tables = [
+            ('apt_rent_transactions', 'aptnm', '아파트'),
+            ('villa_rent_transactions', 'mhousename', '연립다세대'),
+            ('officetel_rent_transactions', 'offinm', '오피스텔'),
+            ('dagagu_rent_transactions', 'NULL', '단독다가구')
+        ]
 
-        # 지번으로 필터링
-        for building in cached_buildings:
+        for table_name, building_col, property_type in tables:
             if len(buildings) >= MAX_RESULTS:
                 break
 
-            # 지번이 검색어로 시작하는지 확인
-            if building['jibun'].startswith(jibun_search):
-                key = (building['sgg_code'], umd_name, building['jibun'], building['building_name'])
+            query_sql = f"""
+                SELECT DISTINCT sggcd, umdnm, jibun, {building_col} as building_name
+                FROM {table_name}
+                WHERE umdnm = %s AND jibun LIKE %s
+                ORDER BY jibun
+                LIMIT %s
+            """
+            cursor.execute(query_sql, (umd_name, f"{jibun_search}%", MAX_RESULTS - len(buildings)))
+
+            for row in cursor.fetchall():
+                key = (row['sggcd'], row['umdnm'], row['jibun'], row['building_name'])
                 if key not in seen:
                     seen.add(key)
 
                     # 시도/시군구 정보 추출
-                    sgg_code = building['sgg_code']
+                    sgg_code = row['sggcd']
                     sido = ''
                     sigungu = ''
                     if sgg_code and sgg_code in REGIONS['sigungu']:
@@ -2731,15 +2700,18 @@ def search_building():
                         sigungu = REGIONS['sigungu'][sgg_code]['name']
 
                     buildings.append({
-                        'sgg_code': building['sgg_code'],
-                        'umd_name': umd_name,
-                        'jibun': building['jibun'],
-                        'building_name': building['building_name'],
-                        'property_type': building['property_type'],
+                        'sgg_code': sgg_code,
+                        'umd_name': row['umdnm'],
+                        'jibun': row['jibun'],
+                        'building_name': row['building_name'],
+                        'property_type': property_type,
                         'sido': sido,
                         'sigungu': sigungu,
-                        'full_address': f"{umd_name} {building['jibun']} {building['building_name'] or ''}"
+                        'full_address': f"{row['umdnm']} {row['jibun']} {row['building_name'] or ''}"
                     })
+
+        cursor.close()
+        conn.close()
 
         return jsonify({
             'success': True,
