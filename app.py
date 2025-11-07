@@ -2984,21 +2984,30 @@ def get_owner_info():
             'numOfRows': 1000,
             'pageNo': 1,
             'key': api_key,
-            'domain': 'http://127.0.0.1'
+            'domain': 'https://ziptoss.com'
         }
 
         print(f"[DEBUG] VWorld API 호출 중... params: {params}")
-        response = requests.get(api_url, params=params, timeout=10)
+
+        try:
+            response = requests.get(api_url, params=params, timeout=5)
+        except requests.Timeout:
+            print(f"[ERROR] VWorld API 타임아웃")
+            return jsonify({'error': 'VWorld API 응답 시간 초과'}), 504
+        except requests.RequestException as e:
+            print(f"[ERROR] VWorld API 요청 실패: {str(e)}")
+            return jsonify({'error': f'API 요청 실패: {str(e)}'}), 500
 
         print(f"[DEBUG] VWorld API 응답 상태: {response.status_code}")
 
         if response.status_code != 200:
             print(f"[ERROR] VWorld API 호출 실패: {response.status_code}")
-            return jsonify({'error': f'API 호출 실패: {response.status_code}'}), 500
+            print(f"[ERROR] 응답 내용: {response.text[:500]}")
+            return jsonify({'error': f'API 호출 실패 (상태코드: {response.status_code})'}), 502
 
         # XML 파싱
         try:
-            print(f"[DEBUG] 응답 내용 (처음 500자): {response.content[:500]}")
+            print(f"[DEBUG] 응답 내용 (처음 300자): {response.content[:300]}")
 
             root = ET.fromstring(response.content)
 
@@ -3022,7 +3031,7 @@ def get_owner_info():
                     item[tag] = value
                 results.append(item)
 
-            safe_print(f"[DEBUG] 소유자 정보 {len(results)}건 조회 완료")
+            print(f"[DEBUG] 소유자 정보 {len(results)}건 조회 완료")
 
             # 동·호별로 그룹화
             grouped_data = {}
@@ -3060,17 +3069,14 @@ def get_owner_info():
             return jsonify({'data': grouped_data})
 
         except ET.ParseError as e:
-            safe_print(f"[ERROR] XML 파싱 오류: {str(e)}")
+            print(f"[ERROR] XML 파싱 오류: {str(e)}")
             return jsonify({'error': 'API 응답 파싱 실패'}), 500
 
-    except requests.Timeout:
-        safe_print(f"[ERROR] VWorld API 타임아웃")
-        return jsonify({'error': 'API 호출 타임아웃'}), 504
     except Exception as e:
-        safe_print(f"[ERROR] 소유자 정보 조회 오류: {str(e)}")
+        print(f"[ERROR] 소유자 정보 조회 오류: {str(e)}")
         import traceback
         traceback.print_exc()
-        return jsonify({'error': str(e)}), 500
+        return jsonify({'error': f'소유자 정보 조회 실패: {str(e)}'}), 500
 
 
 
