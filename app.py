@@ -2994,15 +2994,34 @@ def get_owner_info():
             'domain': 'http://127.0.0.1'
         }
 
-        print(f"[DEBUG] VWorld API 호출 중... params: {params}")
+        # HTTP 헤더 설정 (User-Agent 추가로 API 서버 호환성 개선)
+        headers = {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+            'Accept': 'application/xml, text/xml, */*',
+            'Connection': 'close'  # Keep-alive 비활성화로 연결 문제 방지
+        }
+
+        print(f"[DEBUG] VWorld API 호출 중... PNU: {pnu}")
 
         try:
-            response = requests.get(api_url, params=params, timeout=5)
+            # 타임아웃: (connect timeout, read timeout)
+            # Vercel 서버리스는 10초 제한이므로 총 8초로 설정
+            response = requests.get(
+                api_url,
+                params=params,
+                headers=headers,
+                timeout=(3, 8)  # connect 3초, read 8초
+            )
         except requests.Timeout:
             print(f"[ERROR] VWorld API 타임아웃")
             return jsonify({'error': 'VWorld API 응답 시간 초과'}), 504
+        except requests.ConnectionError as e:
+            print(f"[ERROR] VWorld API 연결 오류: {str(e)}")
+            return jsonify({'error': 'VWorld API 연결 실패. 잠시 후 다시 시도해주세요.'}), 503
         except requests.RequestException as e:
             print(f"[ERROR] VWorld API 요청 실패: {str(e)}")
+            import traceback
+            traceback.print_exc()
             return jsonify({'error': f'API 요청 실패: {str(e)}'}), 500
 
         print(f"[DEBUG] VWorld API 응답 상태: {response.status_code}")
