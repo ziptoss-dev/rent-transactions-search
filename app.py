@@ -1608,7 +1608,7 @@ def api_search():
         build_year_max = parse_numeric_filter(filters.get('build_year_max'), int)
 
         page = filters.get('page', 1)
-        page_size = filters.get('page_size', 20)
+        page_size = filters.get('page_size', 10)  # 성능 최적화: 20 → 10
         offset = (page - 1) * page_size
 
         # 필수값 검증: 계약만기시기 및 시군구
@@ -2248,7 +2248,7 @@ def get_building_transactions():
             umd_name = (request.args.get('umd_name') or '').strip()
             jibun = (request.args.get('jibun') or '').strip()
             page = int(request.args.get('page', 1))
-            page_size = int(request.args.get('page_size', 50))
+            page_size = int(request.args.get('page_size', 30))  # 성능 최적화: 50 → 30
         else:
             data = request.get_json()
             building_name = (data.get('building_name') or '').strip()
@@ -2257,7 +2257,7 @@ def get_building_transactions():
             umd_name = (data.get('umd_name') or '').strip()
             jibun = (data.get('jibun') or '').strip()
             page = int(data.get('page', 1))
-            page_size = int(data.get('page_size', 50))
+            page_size = int(data.get('page_size', 30))  # 성능 최적화: 50 → 30
 
         # 페이지네이션 계산
         offset = (page - 1) * page_size
