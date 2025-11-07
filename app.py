@@ -1606,164 +1606,6 @@ def fetch_unit_info_for_row(cursor, sggcd, umdnm, jibun, floor, excluusear):
         return {'unit': '-', 'all_units': [], 'has_more': False}
 
 
-def fetch_unit_info_batch(cursor, sggcd, umdnm, rows):
-    """
-    여러 행의 호실 정보를 일괄 조회 (N+1 쿼리 문제 해결)
-    Returns: dict mapping (지번, 층, 면적) -> {'unit': ..., 'all_units': [...], 'has_more': ...}
-    """
-    if not rows:
-        return {}
-
-    # 법정동코드 5자리 찾기
-    bjdcd = None
-    for code, info in REGIONS['umd'].items():
-        if info['sgg_code'] == sggcd and info['umd_name'] == umdnm:
-            bjdcd = code[5:]  # 뒤 5자리가 법정동코드
-            break
-
-    if not bjdcd:
-        return {}
-
-    # 모든 row의 조건 수집
-    conditions = []
-    for row in rows:
-        jibun = row.get('지번')
-        floor = row.get('층')
-        excluusear = row.get('면적')
-
-        if not all([jibun, floor is not None, excluusear]):
-            continue
-
-        # 지번 파싱
-        jibun_parts = str(jibun).split('-')
-        bon = jibun_parts[0].strip().zfill(4)
-        bu = jibun_parts[1].strip().zfill(4) if len(jibun_parts) > 1 else '0000'
-
-        # 층 처리
-        try:
-            floor_int = int(float(floor))
-        except (ValueError, TypeError):
-            continue
-
-        if floor_int < 0:
-            floor_code = '10'  # 지하
-            floor_num = str(abs(floor_int))
-        else:
-            floor_code = '20'  # 지상
-            floor_num = str(floor_int)
-
-        # 면적 처리
-        try:
-            area = str(float(excluusear))
-        except (ValueError, TypeError):
-            continue
-
-        conditions.append({
-            '지번': jibun,
-            '층': floor,
-            '면적': excluusear,
-            'bon': bon,
-            'bu': bu,
-            'floor_code': floor_code,
-            'floor_num': floor_num,
-            'area': area
-        })
-
-    if not conditions:
-        return {}
-
-    # WHERE 절 생성 (OR로 연결)
-    where_parts = []
-    params = [sggcd, bjdcd]
-
-    for cond in conditions:
-        where_parts.append(
-            '("번" = %s AND "지" = %s AND "층_구분_코드" = %s AND "층_번호" = %s AND "면적(㎡)" = %s)'
-        )
-        params.extend([cond['bon'], cond['bu'], cond['floor_code'], cond['floor_num'], cond['area']])
-
-    query = f"""
-        SELECT DISTINCT "번", "지", "층_구분_코드", "층_번호", "면적(㎡)", "동_명", "호_명"
-        FROM bldg_exclusive_area
-        WHERE "전유_공용_구분_코드" = '1'
-          AND "시군구_코드" = %s
-          AND "법정동_코드" = %s
-          AND ({' OR '.join(where_parts)})
-        LIMIT 1000
-    """
-
-    try:
-        cursor.execute(query, params)
-        db_results = cursor.fetchall()
-
-        # 결과를 딕셔너리로 그룹화
-        unit_map = {}
-        for db_row in db_results:
-            # 원래 지번 형태로 복원
-            bon_raw = db_row.get('번', '').strip()
-            bu_raw = db_row.get('지', '').strip()
-
-            # 원래 형태 복원: "0001" -> "1", "0000" -> ""
-            bon = str(int(bon_raw)) if bon_raw and bon_raw != '0000' else bon_raw
-            bu = str(int(bu_raw)) if bu_raw and bu_raw != '0000' else ''
-
-            jibun_key = bon if not bu else f"{bon}-{bu}"
-
-            # 층 복원
-            floor_code = db_row.get('층_구분_코드', '')
-            floor_num = db_row.get('층_번호', '')
-            if floor_code == '10':  # 지하
-                floor_key = -int(floor_num) if floor_num else 0
-            else:  # 지상
-                floor_key = int(floor_num) if floor_num else 0
-
-            # 면적
-            area_key = str(float(db_row.get('면적(㎡)', 0)))
-
-            key = (jibun_key, floor_key, area_key)
-
-            if key not in unit_map:
-                unit_map[key] = set()
-
-            # 동명+호명 조합
-            dong = (db_row.get('동_명', '').strip() if db_row.get('동_명') else '')
-            ho = (db_row.get('호_명', '').strip() if db_row.get('호_명') else '')
-
-            if dong and ho:
-                unit_map[key].add(f"{dong} {ho}")
-            elif ho:  # 동명 없이 호명만 있는 경우
-                unit_map[key].add(ho)
-
-        # 결과 포맷팅
-        result_map = {}
-        for key, unique_units in unit_map.items():
-            if not unique_units:
-                result_map[key] = {'unit': '-', 'all_units': [], 'has_more': False}
-                continue
-
-            # 전체 목록 (정렬)
-            all_unit_list = sorted(list(unique_units))
-
-            # 표시용: 최대 10개까지만
-            display_list = all_unit_list[:10]
-            unit_str = ', '.join(display_list)
-
-            if len(unique_units) > 10:
-                unit_str += f" 외 {len(unique_units) - 10}개"
-
-            result_map[key] = {
-                'unit': unit_str,
-                'all_units': all_unit_list,
-                'has_more': len(unique_units) > 10
-            }
-
-        return result_map
-
-    except Exception as e:
-        print(f"[ERROR] 호실 일괄 조회 오류: {str(e)}")
-        return {}
-
-
 @app.route('/api/search', methods=['POST'])
 def api_search():
     """실거래가 검색 API (이름 기반)"""
@@ -1989,39 +1831,19 @@ def api_search():
                             except:
                                 pass
 
-            # 호실 정보 일괄 조회 (아파트) - N+1 쿼리 문제 해결
-            # 기존 sgg_groups 재사용
-            for sgg_code, umd_dict in sgg_groups.items():
-                for umd_name, rows in umd_dict.items():
-                    unit_map = fetch_unit_info_batch(cursor, sgg_code, umd_name, rows)
-
-                    # 결과 매핑
-                    for row in rows:
-                        jibun = row.get('지번')
-                        floor = row.get('층')
-                        area = row.get('면적')
-
-                        if jibun and floor is not None and area:
-                            try:
-                                # 키 생성 (면적은 문자열 그대로)
-                                area_str = str(float(area))
-                                key = (jibun, int(floor), area_str)
-                                if key in unit_map:
-                                    row['동호명'] = unit_map[key]['unit']
-                                    row['동호명_전체목록'] = unit_map[key]['all_units']
-                                    row['동호명_더보기'] = unit_map[key]['has_more']
-                                else:
-                                    row['동호명'] = '-'
-                                    row['동호명_전체목록'] = []
-                                    row['동호명_더보기'] = False
-                            except:
-                                row['동호명'] = '-'
-                                row['동호명_전체목록'] = []
-                                row['동호명_더보기'] = False
-                        else:
-                            row['동호명'] = '-'
-                            row['동호명_전체목록'] = []
-                            row['동호명_더보기'] = False
+            # 호실 정보 조회 (아파트)
+            for row in results:
+                unit_info = fetch_unit_info_for_row(
+                    cursor,
+                    row.get('시군구코드'),
+                    row.get('읍면동리'),
+                    row.get('지번'),
+                    row.get('층'),
+                    row.get('면적')
+                )
+                row['동호명'] = unit_info['unit']
+                row['동호명_전체목록'] = unit_info['all_units']
+                row['동호명_더보기'] = unit_info['has_more']
 
             all_results.extend(results)
             total_time = time.time() - start_time
@@ -2152,39 +1974,19 @@ def api_search():
                             except:
                                 pass
 
-            # 호실 정보 일괄 조회 (연립다세대) - N+1 쿼리 문제 해결
-            # 기존 sgg_groups 재사용
-            for sgg_code, umd_dict in sgg_groups.items():
-                for umd_name, rows in umd_dict.items():
-                    unit_map = fetch_unit_info_batch(cursor, sgg_code, umd_name, rows)
-
-                    # 결과 매핑
-                    for row in rows:
-                        jibun = row.get('지번')
-                        floor = row.get('층')
-                        area = row.get('면적')
-
-                        if jibun and floor is not None and area:
-                            try:
-                                # 키 생성 (면적은 문자열 그대로)
-                                area_str = str(float(area))
-                                key = (jibun, int(floor), area_str)
-                                if key in unit_map:
-                                    row['동호명'] = unit_map[key]['unit']
-                                    row['동호명_전체목록'] = unit_map[key]['all_units']
-                                    row['동호명_더보기'] = unit_map[key]['has_more']
-                                else:
-                                    row['동호명'] = '-'
-                                    row['동호명_전체목록'] = []
-                                    row['동호명_더보기'] = False
-                            except:
-                                row['동호명'] = '-'
-                                row['동호명_전체목록'] = []
-                                row['동호명_더보기'] = False
-                        else:
-                            row['동호명'] = '-'
-                            row['동호명_전체목록'] = []
-                            row['동호명_더보기'] = False
+            # 호실 정보 조회 (연립다세대)
+            for row in results:
+                unit_info = fetch_unit_info_for_row(
+                    cursor,
+                    row.get('시군구코드'),
+                    row.get('읍면동리'),
+                    row.get('지번'),
+                    row.get('층'),
+                    row.get('면적')
+                )
+                row['동호명'] = unit_info['unit']
+                row['동호명_전체목록'] = unit_info['all_units']
+                row['동호명_더보기'] = unit_info['has_more']
 
             all_results.extend(results)
 
@@ -2317,47 +2119,19 @@ def api_search():
                         except:
                             pass
 
-            # 호실 정보 일괄 조회 (오피스텔) - N+1 쿼리 문제 해결
-            # sgg_code + umd_name으로 그룹화
-            sgg_umd_groups = defaultdict(lambda: defaultdict(list))
+            # 호실 정보 조회 (오피스텔)
             for row in results:
-                sgg_code = row.get('시군구코드')
-                umd_name = row.get('읍면동리')
-                if sgg_code and umd_name:
-                    sgg_umd_groups[sgg_code][umd_name].append(row)
-
-            # 각 그룹별로 일괄 조회
-            for sgg_code, umd_dict in sgg_umd_groups.items():
-                for umd_name, rows in umd_dict.items():
-                    unit_map = fetch_unit_info_batch(cursor, sgg_code, umd_name, rows)
-
-                    # 결과 매핑
-                    for row in rows:
-                        jibun = row.get('지번')
-                        floor = row.get('층')
-                        area = row.get('면적')
-
-                        if jibun and floor is not None and area:
-                            try:
-                                # 키 생성 (면적은 문자열 그대로)
-                                area_str = str(float(area))
-                                key = (jibun, int(floor), area_str)
-                                if key in unit_map:
-                                    row['동호명'] = unit_map[key]['unit']
-                                    row['동호명_전체목록'] = unit_map[key]['all_units']
-                                    row['동호명_더보기'] = unit_map[key]['has_more']
-                                else:
-                                    row['동호명'] = '-'
-                                    row['동호명_전체목록'] = []
-                                    row['동호명_더보기'] = False
-                            except:
-                                row['동호명'] = '-'
-                                row['동호명_전체목록'] = []
-                                row['동호명_더보기'] = False
-                        else:
-                            row['동호명'] = '-'
-                            row['동호명_전체목록'] = []
-                            row['동호명_더보기'] = False
+                unit_info = fetch_unit_info_for_row(
+                    cursor,
+                    row.get('시군구코드'),
+                    row.get('읍면동리'),
+                    row.get('지번'),
+                    row.get('층'),
+                    row.get('면적')
+                )
+                row['동호명'] = unit_info['unit']
+                row['동호명_전체목록'] = unit_info['all_units']
+                row['동호명_더보기'] = unit_info['has_more']
 
             all_results.extend(results)
 
