@@ -47,10 +47,13 @@ create_apartment_price_index.py
 *.log
 index_creation.log
 
-# Data files
-*.csv
+# Data files (exclude all except required files)
+# *.csv - COMMENTED OUT: files/lawd_code.csv is required for app startup
 *.json.gz
 nul
+
+# Large data files that should not be deployed
+# (Add specific data files here if needed, but NOT lawd_code.csv)
 
 # Environment
 .env.local
