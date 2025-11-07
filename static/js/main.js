@@ -5,6 +5,13 @@ let hasMoreData = true;
 let currentFilters = null;
 let totalCount = 0;
 
+// 모달 무한 스크롤 상태
+let modalCurrentPage = 1;
+let modalIsLoading = false;
+let modalHasMoreData = true;
+let modalCurrentBuilding = null; // {buildingName, propertyType, sigunguCode, umdName, jibun, sido, sigungu}
+let modalAllData = []; // 필터링 전 전체 데이터 저장
+
 // DOM 요소 캐싱 (성능 최적화 1: 중복 DOM 조회 제거)
 const cachedElements = {};
 
@@ -844,6 +851,71 @@ function resetFilters() {
 
 // ============ 건물별 실거래가 모달 기능 ============
 
+// 계약기간에서 종료 월 추출 (YYYYMM 형식으로 반환)
+function parseContractEndMonth(contractTerm) {
+    if (!contractTerm || contractTerm === '-' || contractTerm === '') {
+        return null;
+    }
+
+    const parts = contractTerm.split('~');
+    if (parts.length !== 2) {
+        return null;
+    }
+
+    const end = parts[1].trim();
+
+    // YYYYMM 형식 (단독다가구) - 예: "202501"
+    if (end.length === 6 && !end.includes('.')) {
+        return end;
+    }
+
+    // YY.MM 형식 (아파트, 연립다세대, 오피스텔) - 예: "25.01"
+    if (end.includes('.')) {
+        const endParts = end.split('.');
+        if (endParts.length === 2) {
+            const year = '20' + endParts[0];
+            const month = endParts[1].padStart(2, '0');
+            return year + month;
+        }
+    }
+
+    return null;
+}
+
+// 현재 월 (YYYYMM 형식)
+function getCurrentYearMonth() {
+    const today = new Date();
+    const year = today.getFullYear();
+    const month = (today.getMonth() + 1).toString().padStart(2, '0');
+    return year + month;
+}
+
+// 모달 데이터 필터링 및 정렬
+function filterAndSortModalData(data, showFutureOnly) {
+    if (!showFutureOnly) {
+        // 필터링 안 함
+        return data;
+    }
+
+    const currentMonth = getCurrentYearMonth();
+
+    // 계약만기시기가 현재 월 이상인 것만 필터링
+    const filtered = data.filter(row => {
+        const endMonth = parseContractEndMonth(row.계약기간);
+        if (!endMonth) return false;
+        return endMonth >= currentMonth;
+    });
+
+    // 계약만기시기 오름차순 정렬 (가까운 미래 순)
+    filtered.sort((a, b) => {
+        const endA = parseContractEndMonth(a.계약기간) || '';
+        const endB = parseContractEndMonth(b.계약기간) || '';
+        return endA.localeCompare(endB);
+    });
+
+    return filtered;
+}
+
 // 건물명 클릭 이벤트 위임
 document.addEventListener('click', function(e) {
     if (e.target && e.target.classList.contains('building-name-clickable')) {
@@ -865,6 +937,27 @@ function openBuildingModal(buildingName, propertyType, sigunguCode, umdName, jib
     const modalBuildingName = document.getElementById('modal-building-name');
     const modalLoading = document.getElementById('modal-loading');
     const modalError = document.getElementById('modal-error');
+
+    // 모달 무한 스크롤 상태 초기화
+    modalCurrentPage = 1;
+    modalHasMoreData = true;
+    modalIsLoading = false;
+    modalAllData = []; // 필터링 전 전체 데이터 초기화
+    modalCurrentBuilding = {
+        buildingName,
+        propertyType,
+        sigunguCode,
+        umdName,
+        jibun,
+        sido,
+        sigungu
+    };
+
+    // 필터 체크박스 초기화 (체크 해제)
+    const futureOnlyCheckbox = document.getElementById('future-listings-only');
+    if (futureOnlyCheckbox) {
+        futureOnlyCheckbox.checked = false;
+    }
 
     // 주택 유형 뱃지 생성
     const typeBadgeColors = {
@@ -892,18 +985,45 @@ function openBuildingModal(buildingName, propertyType, sigunguCode, umdName, jib
     modalLoading.style.display = 'block';
     modalError.style.display = 'none';
 
-    // API 호출
+    // 모달 무한 스크롤 설정
+    setupModalInfiniteScroll();
+
+    // API 호출 (첫 페이지)
+    loadBuildingTransactions(false);
+}
+
+// 모달 거래내역 로드 (append 옵션 지원)
+function loadBuildingTransactions(append = false) {
+    if (modalIsLoading) return;
+
+    modalIsLoading = true;
+
+    const modalLoading = document.getElementById('modal-loading');
+    const modalError = document.getElementById('modal-error');
+
+    if (!append) {
+        modalLoading.style.display = 'block';
+        modalError.style.display = 'none';
+    }
+
+    console.log('[모달무한스크롤] API 호출:', {
+        page: modalCurrentPage,
+        append: append
+    });
+
     fetch('/api/building-transactions', {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-            building_name: buildingName,
-            property_type: propertyType,
-            sigungu_code: sigunguCode,
-            umd_name: umdName,
-            jibun: jibun
+            building_name: modalCurrentBuilding.buildingName,
+            property_type: modalCurrentBuilding.propertyType,
+            sigungu_code: modalCurrentBuilding.sigunguCode,
+            umd_name: modalCurrentBuilding.umdName,
+            jibun: modalCurrentBuilding.jibun,
+            page: modalCurrentPage,
+            page_size: 50
         })
     })
     .then(response => response.json())
@@ -911,30 +1031,63 @@ function openBuildingModal(buildingName, propertyType, sigunguCode, umdName, jib
         modalLoading.style.display = 'none';
 
         if (data.success) {
-            displayBuildingTransactions(data.data, propertyType);
+            displayBuildingTransactions(data.data, modalCurrentBuilding.propertyType, append);
+            modalHasMoreData = data.has_more || false;
+
+            console.log('[모달무한스크롤] 응답 받음:', {
+                count: data.count,
+                has_more: data.has_more,
+                append: append
+            });
         } else {
-            modalError.textContent = data.error || '데이터를 불러오는 중 오류가 발생했습니다.';
-            modalError.style.display = 'block';
+            if (!append) {
+                modalError.textContent = data.error || '데이터를 불러오는 중 오류가 발생했습니다.';
+                modalError.style.display = 'block';
+            }
         }
     })
     .catch(error => {
         modalLoading.style.display = 'none';
-        modalError.textContent = '서버 오류가 발생했습니다.';
-        modalError.style.display = 'block';
+        if (!append) {
+            modalError.textContent = '서버 오류가 발생했습니다.';
+            modalError.style.display = 'block';
+        }
         console.error('Error:', error);
+    })
+    .finally(() => {
+        modalIsLoading = false;
+        console.log('[모달무한스크롤] isLoading = false');
     });
 }
 
 // 모달 데이터 표시
-function displayBuildingTransactions(data, propertyType) {
+function displayBuildingTransactions(data, propertyType, append = false) {
     const modalTableBody = document.querySelector('#modal-results-table tbody');
 
     if (!data || data.length === 0) {
-        modalTableBody.innerHTML = '<tr><td colspan="14" class="no-data">데이터가 없습니다.</td></tr>';
+        if (!append) {
+            modalTableBody.innerHTML = '<tr><td colspan="14" class="no-data">데이터가 없습니다.</td></tr>';
+        }
         return;
     }
 
-    const rowsHTML = data.map(row => {
+    // 데이터 저장 (필터링 전 원본 데이터)
+    if (append) {
+        modalAllData = modalAllData.concat(data);
+    } else {
+        modalAllData = data;
+    }
+
+    // 필터 적용 여부 확인
+    const futureOnlyCheckbox = document.getElementById('future-listings-only');
+    const showFutureOnly = futureOnlyCheckbox ? futureOnlyCheckbox.checked : false;
+
+    // 필터링 및 정렬
+    const filteredData = filterAndSortModalData(modalAllData, showFutureOnly);
+
+    // append 모드에서는 전체를 다시 렌더링 (필터링 때문에)
+    // 새 검색 - HTML로 한 번에 설정
+    const rowsHTML = filteredData.map(row => {
         // 보증금 포맷 선택: 오피스텔은 기준시가, 아파트/연립다세대는 공동주택가격
         let depositHTML;
         if (propertyType === '오피스텔') {
@@ -979,6 +1132,130 @@ document.getElementById('building-modal').addEventListener('click', function(e) 
         this.style.display = 'none';
     }
 });
+
+// 모달 테이블 재렌더링 (필터 적용)
+function reRenderModalTable() {
+    if (modalAllData.length === 0 || !modalCurrentBuilding) {
+        return;
+    }
+
+    const propertyType = modalCurrentBuilding.propertyType;
+    const modalTableBody = document.querySelector('#modal-results-table tbody');
+
+    // 필터 적용 여부 확인
+    const futureOnlyCheckbox = document.getElementById('future-listings-only');
+    const showFutureOnly = futureOnlyCheckbox ? futureOnlyCheckbox.checked : false;
+
+    // 필터링 및 정렬
+    const filteredData = filterAndSortModalData(modalAllData, showFutureOnly);
+
+    if (filteredData.length === 0) {
+        modalTableBody.innerHTML = '<tr><td colspan="14" class="no-data">조건에 맞는 데이터가 없습니다.</td></tr>';
+        return;
+    }
+
+    // HTML로 한 번에 설정
+    const rowsHTML = filteredData.map(row => {
+        // 보증금 포맷 선택: 오피스텔은 기준시가, 아파트/연립다세대는 공동주택가격
+        let depositHTML;
+        if (propertyType === '오피스텔') {
+            depositHTML = formatDepositWithStandardPrice(row);
+        } else if (propertyType === '아파트' || propertyType === '연립다세대') {
+            depositHTML = formatDepositWithApartmentPrice(row);
+        } else {
+            depositHTML = formatPrice(row.보증금);
+        }
+
+        return `
+            <tr>
+                <td>${row.계약년월 || ''}</td>
+                <td>${row.계약일 || ''}</td>
+                <td class="unit-info-cell">${formatUnitInfo(row)}</td>
+                <td>${row.층 || ''}</td>
+                <td>${row.면적 || ''}</td>
+                <td>${getContractTypeBadge(row.월세)}</td>
+                <td>${depositHTML}</td>
+                <td>${formatPrice(row.월세)}</td>
+                <td>${row.건축년도 || ''}</td>
+                <td>${row.계약구분 || ''}</td>
+                <td>${getContractPeriodWithBadge(row.계약기간)}</td>
+                <td>${formatPrice(row.종전계약보증금)}</td>
+                <td>${formatPrice(row.종전계약월세)}</td>
+                <td>${row.갱신요구권사용 || ''}</td>
+            </tr>
+        `;
+    }).join('');
+
+    modalTableBody.innerHTML = rowsHTML;
+}
+
+// 미래 매물 필터 체크박스 이벤트
+document.addEventListener('DOMContentLoaded', function() {
+    const futureOnlyCheckbox = document.getElementById('future-listings-only');
+    if (futureOnlyCheckbox) {
+        futureOnlyCheckbox.addEventListener('change', function() {
+            // 체크박스 변경 시 필터 적용하여 재렌더링
+            reRenderModalTable();
+        });
+    }
+});
+
+// 모달 무한 스크롤 설정
+let modalScrollHandler = null;
+
+function setupModalInfiniteScroll() {
+    const modalTableContainer = document.querySelector('.modal-table-container');
+    if (!modalTableContainer) {
+        console.error('[모달무한스크롤] modal-table-container를 찾을 수 없음');
+        return;
+    }
+
+    // 기존 이벤트 리스너 제거
+    if (modalScrollHandler) {
+        modalTableContainer.removeEventListener('scroll', modalScrollHandler);
+        console.log('[모달무한스크롤] 기존 리스너 제거');
+    }
+
+    modalScrollHandler = debounce(() => {
+        const scrollTop = modalTableContainer.scrollTop;
+        const clientHeight = modalTableContainer.clientHeight;
+        const scrollHeight = modalTableContainer.scrollHeight;
+        const isNearBottom = scrollTop + clientHeight >= scrollHeight - 100;
+
+        console.log('[모달무한스크롤] 스크롤 이벤트:', {
+            scrollTop,
+            clientHeight,
+            scrollHeight,
+            isNearBottom,
+            isLoading: modalIsLoading,
+            hasMoreData: modalHasMoreData
+        });
+
+        if (isNearBottom && !modalIsLoading && modalHasMoreData && modalCurrentBuilding) {
+            console.log('[모달무한스크롤] 추가 데이터 로드 시작');
+            loadMoreModalData();
+        }
+    }, 150);
+
+    modalTableContainer.addEventListener('scroll', modalScrollHandler);
+    console.log('[모달무한스크롤] 새 리스너 등록 완료');
+}
+
+// 모달 더 많은 데이터 로드
+function loadMoreModalData() {
+    if (modalIsLoading || !modalHasMoreData) {
+        console.log('[모달무한스크롤] loadMoreModalData 중단:', {
+            isLoading: modalIsLoading,
+            hasMoreData: modalHasMoreData
+        });
+        return;
+    }
+
+    console.log('[모달무한스크롤] 페이지 증가:', modalCurrentPage, '->', modalCurrentPage + 1);
+    modalCurrentPage++;
+
+    loadBuildingTransactions(true); // append 모드
+}
 
 // 툴팁 DOM 요소 생성 및 관리
 let tooltipElement = null;
