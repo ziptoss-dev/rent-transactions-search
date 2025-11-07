@@ -2988,7 +2988,7 @@ def get_owner_info():
         params = {
             'pnu': pnu,
             'format': 'xml',
-            'numOfRows': 100,  # 1000 → 100으로 축소 (응답 크기 감소)
+            'numOfRows': 1000,  # 최대값
             'pageNo': 1,
             'key': api_key,
             'domain': 'https://rent-transactions.ziptoss.com/'  # 배포 URL (슬래시 포함)
