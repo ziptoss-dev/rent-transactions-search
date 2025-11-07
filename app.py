@@ -2991,16 +2991,24 @@ def get_owner_info():
             'numOfRows': 100,  # 1000 → 100으로 축소 (응답 크기 감소)
             'pageNo': 1,
             'key': api_key,
-            'domain': 'http://127.0.0.1'
+            'domain': 'https://rent-transactions.ziptoss.com'  # 배포 URL 사용
         }
 
-        # HTTP 헤더 설정
+        # HTTP 헤더 설정 (완전한 브라우저처럼)
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'Accept': 'application/xml, text/xml, */*'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Accept': 'application/xml, text/xml, application/xhtml+xml, */*',
+            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Referer': 'https://rent-transactions.ziptoss.com/',
+            'Origin': 'https://rent-transactions.ziptoss.com'
         }
 
         print(f"[DEBUG] VWorld API 호출 시작 - PNU: {pnu}")
+        # API 키는 앞 5자만 표시
+        safe_params = {**params, 'key': f"{api_key[:5]}***" if api_key else None}
+        print(f"[DEBUG] 요청 파라미터: {safe_params}")
+        print(f"[DEBUG] 요청 URL: {api_url}")
 
         # 재시도 로직 (최대 2회)
         max_retries = 2
