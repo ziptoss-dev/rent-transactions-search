@@ -2984,15 +2984,10 @@ def get_owner_info():
         if not api_key:
             return jsonify({'error': 'VWorld API Key가 설정되지 않았습니다.'}), 500
 
-        api_url = "https://api.vworld.kr/ned/data/getPossessionAttr"
-        params = {
-            'pnu': pnu,
-            'format': 'xml',
-            'numOfRows': 1000,  # 최대값
-            'pageNo': 1,
-            'key': api_key,
-            'domain': 'https://rent-transactions.ziptoss.com'
-        }
+        # VWorld API는 domain 파라미터의 URL 인코딩을 허용하지 않음
+        # URL을 직접 생성하여 인코딩 방지
+        domain_param = 'https://rent-transactions.ziptoss.com'
+        api_url = f"https://api.vworld.kr/ned/data/getPossessionAttr?pnu={pnu}&format=xml&numOfRows=1000&pageNo=1&key={api_key}&domain={domain_param}"
 
         # HTTP 헤더 설정 (최소화)
         headers = {
@@ -3000,10 +2995,7 @@ def get_owner_info():
         }
 
         print(f"[DEBUG] VWorld API 호출 시작 - PNU: {pnu}")
-        # API 키는 앞 5자만 표시
-        safe_params = {**params, 'key': f"{api_key[:5]}***" if api_key else None}
-        print(f"[DEBUG] 요청 파라미터: {safe_params}")
-        print(f"[DEBUG] 요청 URL: {api_url}")
+        print(f"[DEBUG] 요청 URL: {api_url.replace(api_key, f'{api_key[:5]}***')}")
 
         # 재시도 로직 (최대 3회)
         max_retries = 3
@@ -3014,9 +3006,9 @@ def get_owner_info():
                 print(f"[DEBUG] VWorld API 시도 {attempt + 1}/{max_retries}")
 
                 # Vercel 10초 제한 내에서 충분한 타임아웃
+                # params를 사용하지 않고 URL을 직접 전달
                 response = requests.get(
                     api_url,
-                    params=params,
                     headers=headers,
                     timeout=(5, 8)  # connect 5초, read 8초
                 )
