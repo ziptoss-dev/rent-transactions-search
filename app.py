@@ -3026,6 +3026,9 @@ def get_owner_info():
                     timeout=(2, 5)  # connect 2초, read 5초
                 )
 
+                # 실제로 요청한 전체 URL 출력
+                print(f"[DEBUG] 실제 요청 URL: {response.url}")
+
                 # 성공하면 루프 탈출
                 print(f"[DEBUG] VWorld API 응답 성공 (시도 {attempt + 1})")
                 break
