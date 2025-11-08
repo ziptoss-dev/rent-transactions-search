@@ -2994,14 +2994,9 @@ def get_owner_info():
             'domain': 'https://rent-transactions.ziptoss.com'
         }
 
-        # HTTP 헤더 설정 (완전한 브라우저처럼)
+        # HTTP 헤더 설정 (최소화)
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Accept': 'application/xml, text/xml, application/xhtml+xml, */*',
-            'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Referer': 'https://rent-transactions.ziptoss.com/',
-            'Origin': 'https://rent-transactions.ziptoss.com'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
 
         print(f"[DEBUG] VWorld API 호출 시작 - PNU: {pnu}")
@@ -3010,20 +3005,20 @@ def get_owner_info():
         print(f"[DEBUG] 요청 파라미터: {safe_params}")
         print(f"[DEBUG] 요청 URL: {api_url}")
 
-        # 재시도 로직 (최대 2회)
-        max_retries = 2
+        # 재시도 로직 (최대 3회)
+        max_retries = 3
         last_error = None
 
         for attempt in range(max_retries):
             try:
                 print(f"[DEBUG] VWorld API 시도 {attempt + 1}/{max_retries}")
 
-                # 짧은 타임아웃으로 빠르게 실패하고 재시도
+                # Vercel 10초 제한 내에서 충분한 타임아웃
                 response = requests.get(
                     api_url,
                     params=params,
                     headers=headers,
-                    timeout=(2, 5)  # connect 2초, read 5초
+                    timeout=(5, 8)  # connect 5초, read 8초
                 )
 
                 # 실제로 요청한 전체 URL 출력
@@ -3038,6 +3033,9 @@ def get_owner_info():
                 print(f"[ERROR] VWorld API 타임아웃 (시도 {attempt + 1}): {str(e)}")
                 if attempt == max_retries - 1:
                     return jsonify({'error': 'VWorld API 응답 시간 초과'}), 504
+                # 재시도 전 대기
+                import time
+                time.sleep(0.5)
 
             except requests.ConnectionError as e:
                 last_error = e
@@ -3048,6 +3046,9 @@ def get_owner_info():
                         'error': '소유자 정보를 불러올 수 없습니다.',
                         'message': '현재 서버 환경에서 VWorld API에 접근할 수 없습니다.'
                     }), 503
+                # 재시도 전 대기
+                import time
+                time.sleep(0.5)
 
             except requests.RequestException as e:
                 last_error = e
