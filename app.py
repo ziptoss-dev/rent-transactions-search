@@ -2991,7 +2991,7 @@ def get_owner_info():
             'numOfRows': 1000,  # 최대값
             'pageNo': 1,
             'key': api_key,
-            'domain': 'http://127.0.0.1'  # VWorld API에 등록된 도메인 사용
+            'domain': 'https://rent-transactions.ziptoss.com'
         }
 
         # HTTP 헤더 설정 (완전한 브라우저처럼)
