@@ -126,8 +126,8 @@ function formatUnitInfo(row) {
 
     // 호실 정보가 아직 로드되지 않은 경우 (null 또는 undefined)
     if (unitStr === null || unitStr === undefined) {
-        // 아파트만 호실 확인 버튼 표시
-        if (row.구분 === '아파트') {
+        // 단독다가구 제외하고 모두 호실 확인 버튼 표시
+        if (row.구분 !== '단독다가구') {
             return `
                 <button class="unit-check-btn"
                     data-sgg-code="${row.시군구코드 || ''}"
