@@ -2002,19 +2002,11 @@ def api_search():
                             except:
                                 pass
 
-            # 호실 정보 조회 (연립다세대)
+            # 호실 정보 (메인 검색에서는 생략 - 성능 최적화)
             for row in results:
-                unit_info = fetch_unit_info_for_row(
-                    cursor,
-                    row.get('시군구코드'),
-                    row.get('읍면동리'),
-                    row.get('지번'),
-                    row.get('층'),
-                    row.get('면적')
-                )
-                row['동호명'] = unit_info['unit']
-                row['동호명_전체목록'] = unit_info['all_units']
-                row['동호명_더보기'] = unit_info['has_more']
+                row['동호명'] = '-'  # 연립다세대는 호실 정보 없음
+                row['동호명_전체목록'] = []
+                row['동호명_더보기'] = False
 
             all_results.extend(results)
 
@@ -2147,19 +2139,11 @@ def api_search():
                         except:
                             pass
 
-            # 호실 정보 조회 (오피스텔)
+            # 호실 정보 (메인 검색에서는 생략 - 성능 최적화)
             for row in results:
-                unit_info = fetch_unit_info_for_row(
-                    cursor,
-                    row.get('시군구코드'),
-                    row.get('읍면동리'),
-                    row.get('지번'),
-                    row.get('층'),
-                    row.get('면적')
-                )
-                row['동호명'] = unit_info['unit']
-                row['동호명_전체목록'] = unit_info['all_units']
-                row['동호명_더보기'] = unit_info['has_more']
+                row['동호명'] = '-'  # 오피스텔은 호실 정보 없음
+                row['동호명_전체목록'] = []
+                row['동호명_더보기'] = False
 
             all_results.extend(results)
 
