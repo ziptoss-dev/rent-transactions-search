@@ -1691,7 +1691,7 @@ def api_search():
         build_year_max = parse_numeric_filter(filters.get('build_year_max'), int)
 
         page = filters.get('page', 1)
-        page_size = filters.get('page_size', 10)  # 성능 최적화: 20 → 10
+        page_size = filters.get('page_size', 5)  # 성능 최적화: 초기 로딩 5건
         offset = (page - 1) * page_size
 
         # 필수값 검증: 계약만기시기 및 시군구
@@ -1866,19 +1866,12 @@ def api_search():
                             except:
                                 pass
 
-            # 호실 정보 조회 (아파트)
+            # 호실 정보 조회 (메인 검색에서는 생략 - 성능 최적화)
+            # 호실 정보는 사용자가 "호실 확인" 버튼을 클릭할 때만 조회
             for row in results:
-                unit_info = fetch_unit_info_for_row(
-                    cursor,
-                    row.get('시군구코드'),
-                    row.get('읍면동리'),
-                    row.get('지번'),
-                    row.get('층'),
-                    row.get('면적')
-                )
-                row['동호명'] = unit_info['unit']
-                row['동호명_전체목록'] = unit_info['all_units']
-                row['동호명_더보기'] = unit_info['has_more']
+                row['동호명'] = None  # 초기값
+                row['동호명_전체목록'] = []
+                row['동호명_더보기'] = False
 
             all_results.extend(results)
             total_time = time.time() - start_time
@@ -3152,6 +3145,53 @@ def get_owner_info():
         return jsonify({'error': f'소유자 정보 조회 실패: {str(e)}'}), 500
 
 
+@app.route('/api/fetch-unit-info', methods=['POST'])
+def api_fetch_unit_info():
+    """단일 거래 건의 호실 정보 조회 (지연 로딩용)"""
+    try:
+        data = request.get_json()
+        sgg_code = data.get('sgg_code')
+        umd_name = data.get('umd_name')
+        jibun = data.get('jibun')
+        floor = data.get('floor')
+        area = data.get('area')
+
+        if not all([sgg_code, umd_name, jibun, floor is not None, area]):
+            return jsonify({
+                'success': False,
+                'error': '필수 파라미터가 누락되었습니다.'
+            }), 400
+
+        conn = get_db_connection()
+        cursor = conn.cursor()
+
+        unit_info = fetch_unit_info_for_row(
+            cursor,
+            sgg_code,
+            umd_name,
+            jibun,
+            floor,
+            area
+        )
+
+        cursor.close()
+        conn.close()
+
+        return jsonify({
+            'success': True,
+            'unit': unit_info['unit'],
+            'all_units': unit_info['all_units'],
+            'has_more': unit_info['has_more']
+        })
+
+    except Exception as e:
+        print(f"[ERROR] 호실 정보 조회 오류: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({
+            'success': False,
+            'error': f'호실 정보 조회 실패: {str(e)}'
+        }), 500
 
 
 if __name__ == '__main__':

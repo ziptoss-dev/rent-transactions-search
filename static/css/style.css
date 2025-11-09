@@ -1081,3 +1081,32 @@ tbody tr:last-child td {
 #modal-results-table th:nth-child(13), #modal-results-table td:nth-child(13) { width: 70px !important; min-width: 70px; max-width: 70px; }  /* 종전월세 */
 #modal-results-table th:nth-child(14), #modal-results-table td:nth-child(14) { width: 80px !important; min-width: 80px; max-width: 80px; }  /* 갱신권사용 */
 /* Updated 2025-11-07 18:52:19 - Owner table width fix */
+
+
+/* 호실 확인 버튼 스타일 */
+.unit-check-btn {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border: none;
+    padding: 4px 12px;
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    font-weight: 500;
+}
+
+.unit-check-btn:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+}
+
+.unit-check-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.unit-check-btn:active:not(:disabled) {
+    transform: translateY(0);
+}
+

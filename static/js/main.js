@@ -122,7 +122,25 @@ function formatDepositWithApartmentPrice(row) {
 
 // 호실 정보 포맷 함수 (툴팁 지원)
 function formatUnitInfo(row) {
-    const unitStr = row.동호명 || '-';
+    const unitStr = row.동호명;
+
+    // 호실 정보가 아직 로드되지 않은 경우 (null 또는 undefined)
+    if (unitStr === null || unitStr === undefined) {
+        // 아파트만 호실 확인 버튼 표시
+        if (row.구분 === '아파트') {
+            return `
+                <button class="unit-check-btn"
+                    data-sgg-code="${row.시군구코드 || ''}"
+                    data-umd-name="${row.읍면동리 || ''}"
+                    data-jibun="${row.지번 || ''}"
+                    data-floor="${row.층 || ''}"
+                    data-area="${row.면적 || ''}">
+                    호실 확인
+                </button>
+            `;
+        }
+        return '-';
+    }
 
     // '-'인 경우 그대로 반환
     if (unitStr === '-') {
@@ -213,6 +231,67 @@ document.addEventListener('DOMContentLoaded', function() {
     const resetBtn = document.getElementById('reset-btn');
     if (resetBtn) {
         resetBtn.addEventListener('click', resetFilters);
+    }
+
+    // 호실 확인 버튼 이벤트 리스너 (이벤트 위임)
+    const resultsTable = document.getElementById('results-table');
+    if (resultsTable) {
+        resultsTable.addEventListener('click', async function(e) {
+            const btn = e.target.closest('.unit-check-btn');
+            if (!btn) return;
+
+            const sggCode = btn.dataset.sggCode;
+            const umdName = btn.dataset.umdName;
+            const jibun = btn.dataset.jibun;
+            const floor = btn.dataset.floor;
+            const area = btn.dataset.area;
+
+            // 버튼 비활성화 및 로딩 표시
+            btn.disabled = true;
+            btn.textContent = '조회중...';
+
+            try {
+                const response = await fetch('/api/fetch-unit-info', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        sgg_code: sggCode,
+                        umd_name: umdName,
+                        jibun: jibun,
+                        floor: floor,
+                        area: area
+                    })
+                });
+
+                const data = await response.json();
+
+                if (data.success) {
+                    // 호실 정보 표시
+                    const cell = btn.closest('td');
+                    if (data.all_units && data.all_units.length > 0) {
+                        const tooltipText = data.all_units.join(', ');
+                        cell.innerHTML = `<span class="unit-with-tooltip" title="${tooltipText}">${data.unit || '-'}</span>`;
+                    } else {
+                        cell.textContent = data.unit || '-';
+                    }
+                } else {
+                    btn.textContent = '조회 실패';
+                    setTimeout(() => {
+                        btn.textContent = '호실 확인';
+                        btn.disabled = false;
+                    }, 2000);
+                }
+            } catch (error) {
+                console.error('호실 정보 조회 오류:', error);
+                btn.textContent = '오류';
+                setTimeout(() => {
+                    btn.textContent = '호실 확인';
+                    btn.disabled = false;
+                }, 2000);
+            }
+        });
     }
 });
 
