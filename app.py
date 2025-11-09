@@ -2995,10 +2995,20 @@ def get_owner_info():
             env_type = '프로덕션' if is_production else '로컬'
             return jsonify({'error': f'VWorld API Key({env_type})가 설정되지 않았습니다.'}), 500
 
-        # VWorld API는 domain 파라미터의 URL 인코딩을 허용하지 않음
-        # URL을 직접 생성하여 인코딩 방지
+        # VWorld API 호출 URL 결정
+        # 프로덕션 환경에서 프록시 URL이 설정되어 있으면 프록시 사용
+        proxy_url = os.getenv('VWORLD_PROXY_URL')
 
-        api_url = f"https://api.vworld.kr/ned/data/getPossessionAttr?pnu={pnu}&format=xml&numOfRows=1000&pageNo=1&key={api_key}&domain={domain_param}"
+        if is_production and proxy_url:
+            # AWS Lambda 프록시 사용 (Seoul 리전에서 호출)
+            api_url = f"{proxy_url}?pnu={pnu}&key={api_key}&domain={domain_param}"
+            print(f"[DEBUG] Using Lambda proxy: {proxy_url}")
+        else:
+            # VWorld API 직접 호출
+            # VWorld API는 domain 파라미터의 URL 인코딩을 허용하지 않음
+            # URL을 직접 생성하여 인코딩 방지
+            api_url = f"https://api.vworld.kr/ned/data/getPossessionAttr?pnu={pnu}&format=xml&numOfRows=1000&pageNo=1&key={api_key}&domain={domain_param}"
+            print(f"[DEBUG] Calling VWorld API directly")
 
         # HTTP 헤더 설정 (최소화)
         headers = {
