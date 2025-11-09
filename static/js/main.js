@@ -1472,12 +1472,39 @@ function searchBuildings(query) {
             if (data.success && data.buildings && data.buildings.length > 0) {
                 displayBuildingResults(data.buildings);
             } else {
-                resultsContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #64748b;">검색 결과가 없습니다</div>';
+                resultsContainer.innerHTML = `
+                    <div style="
+                        text-align: center;
+                        padding: 40px 20px;
+                        background: #f8fafc;
+                        border-radius: 8px;
+                        border: 1px solid #e2e8f0;
+                        color: #64748b;
+                        font-size: 15px;
+                    ">
+                        <div style="font-size: 48px; margin-bottom: 16px;">🔍</div>
+                        <div style="font-weight: 500; margin-bottom: 8px;">검색 결과가 없습니다.</div>
+                        <div style="font-size: 13px; color: #94a3b8;">다른 검색어로 다시 시도해주세요.</div>
+                    </div>
+                `;
             }
         })
         .catch(error => {
             console.error('건물 검색 오류:', error);
-            resultsContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #ef4444;">검색 중 오류가 발생했습니다</div>';
+            resultsContainer.innerHTML = `
+                <div style="
+                    text-align: center;
+                    padding: 40px 20px;
+                    background: #fef2f2;
+                    border-radius: 8px;
+                    border: 1px solid #fecaca;
+                    color: #dc2626;
+                    font-size: 15px;
+                ">
+                    <div style="font-size: 48px; margin-bottom: 16px;">⚠️</div>
+                    <div style="font-weight: 500;">검색 중 오류가 발생했습니다.</div>
+                </div>
+            `;
         });
 }
 
@@ -1485,7 +1512,21 @@ function displayBuildingResults(buildings) {
     const resultsContainer = document.getElementById('building-search-results');
 
     if (buildings.length === 0) {
-        resultsContainer.innerHTML = '<div style="text-align: center; padding: 20px; color: #64748b;">검색 결과가 없습니다</div>';
+        resultsContainer.innerHTML = `
+            <div style="
+                text-align: center;
+                padding: 40px 20px;
+                background: #f8fafc;
+                border-radius: 8px;
+                border: 1px solid #e2e8f0;
+                color: #64748b;
+                font-size: 15px;
+            ">
+                <div style="font-size: 48px; margin-bottom: 16px;">🔍</div>
+                <div style="font-weight: 500; margin-bottom: 8px;">검색 결과가 없습니다.</div>
+                <div style="font-size: 13px; color: #94a3b8;">다른 검색어로 다시 시도해주세요.</div>
+            </div>
+        `;
         return;
     }
 
