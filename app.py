@@ -2979,14 +2979,25 @@ def get_owner_info():
 
         print(f"[DEBUG] 법정동코드: {umd_code}, PNU: {pnu}")
 
-        # VWorld API 호출
-        api_key = os.getenv('VWORLD_API_KEY')
+        # 환경에 따라 API key와 domain 파라미터 선택
+        is_production = os.getenv('VERCEL_ENV') == 'production' or os.getenv('ENVIRONMENT') == 'production'
+
+        if is_production:
+            # 배포 환경: 프로덕션 API 키와 도메인 사용
+            api_key = os.getenv('VWORLD_API_KEY_PROD')
+            domain_param = 'https://rent-transactions.ziptoss.com'
+        else:
+            # 로컬 환경: 로컬 API 키와 localhost 사용
+            api_key = os.getenv('VWORLD_API_KEY_LOCAL')
+            domain_param = 'http://127.0.0.1'
+
         if not api_key:
-            return jsonify({'error': 'VWorld API Key가 설정되지 않았습니다.'}), 500
+            env_type = '프로덕션' if is_production else '로컬'
+            return jsonify({'error': f'VWorld API Key({env_type})가 설정되지 않았습니다.'}), 500
 
         # VWorld API는 domain 파라미터의 URL 인코딩을 허용하지 않음
         # URL을 직접 생성하여 인코딩 방지
-        domain_param = 'https://rent-transactions.ziptoss.com'
+
         api_url = f"https://api.vworld.kr/ned/data/getPossessionAttr?pnu={pnu}&format=xml&numOfRows=1000&pageNo=1&key={api_key}&domain={domain_param}"
 
         # HTTP 헤더 설정 (최소화)
