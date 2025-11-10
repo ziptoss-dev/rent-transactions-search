@@ -618,6 +618,42 @@ tbody tr:last-child td {
     color: #7c3aed;
 }
 
+.badge-lh {
+    background: #dcfce7;
+    color: #166534;
+    font-weight: 600;
+    margin-right: 4px;
+    cursor: help;
+    text-decoration: underline;
+    text-decoration-style: dotted;
+    text-underline-offset: 2px;
+}
+
+.badge-lh:hover {
+    background: #bbf7d0;
+    text-decoration-style: solid;
+}
+
+.lh-help-icon {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    line-height: 18px;
+    text-align: center;
+    background: #16a34a;
+    color: white;
+    border-radius: 50%;
+    font-size: 12px;
+    font-weight: 600;
+    margin-left: 6px;
+    cursor: help;
+    vertical-align: middle;
+}
+
+.lh-help-icon:hover {
+    background: #15803d;
+}
+
 .badge-jeonse {
     background: #dbeafe;
     color: #1e40af;
@@ -1071,15 +1107,15 @@ tbody tr:last-child td {
 }  /* 동·호명 */
 #modal-results-table th:nth-child(4), #modal-results-table td:nth-child(4) { width: 50px !important; min-width: 50px; max-width: 50px; }  /* 층 */
 #modal-results-table th:nth-child(5), #modal-results-table td:nth-child(5) { width: 70px !important; min-width: 70px; max-width: 70px; }  /* 면적 */
-#modal-results-table th:nth-child(6), #modal-results-table td:nth-child(6) { width: 50px !important; min-width: 50px; max-width: 50px; }  /* 구분 */
-#modal-results-table th:nth-child(7), #modal-results-table td:nth-child(7) { width: 80px !important; min-width: 80px; max-width: 80px; }  /* 보증금 */
-#modal-results-table th:nth-child(8), #modal-results-table td:nth-child(8) { width: 60px !important; min-width: 60px; max-width: 60px; }  /* 월세 */
-#modal-results-table th:nth-child(9), #modal-results-table td:nth-child(9) { width: 70px !important; min-width: 70px; max-width: 70px; }  /* 건축년도 */
-#modal-results-table th:nth-child(10), #modal-results-table td:nth-child(10) { width: 70px !important; min-width: 70px; max-width: 70px; }  /* 계약구분 */
-#modal-results-table th:nth-child(11), #modal-results-table td:nth-child(11) { width: 130px !important; min-width: 130px; max-width: 130px; }  /* 계약기간 */
-#modal-results-table th:nth-child(12), #modal-results-table td:nth-child(12) { width: 80px !important; min-width: 80px; max-width: 80px; }  /* 종전보증금 */
-#modal-results-table th:nth-child(13), #modal-results-table td:nth-child(13) { width: 70px !important; min-width: 70px; max-width: 70px; }  /* 종전월세 */
-#modal-results-table th:nth-child(14), #modal-results-table td:nth-child(14) { width: 80px !important; min-width: 80px; max-width: 80px; }  /* 갱신권사용 */
+#modal-results-table th:nth-child(6), #modal-results-table td:nth-child(6) { width: 130px !important; min-width: 130px; max-width: 130px; white-space: nowrap; }  /* 구분 */
+#modal-results-table th:nth-child(7), #modal-results-table td:nth-child(7) { width: 70px !important; min-width: 70px; max-width: 70px; }  /* 보증금 */
+#modal-results-table th:nth-child(8), #modal-results-table td:nth-child(8) { width: 50px !important; min-width: 50px; max-width: 50px; }  /* 월세 */
+#modal-results-table th:nth-child(9), #modal-results-table td:nth-child(9) { width: 60px !important; min-width: 60px; max-width: 60px; }  /* 건축년도 */
+#modal-results-table th:nth-child(10), #modal-results-table td:nth-child(10) { width: 60px !important; min-width: 60px; max-width: 60px; }  /* 계약구분 */
+#modal-results-table th:nth-child(11), #modal-results-table td:nth-child(11) { width: 120px !important; min-width: 120px; max-width: 120px; }  /* 계약기간 */
+#modal-results-table th:nth-child(12), #modal-results-table td:nth-child(12) { width: 70px !important; min-width: 70px; max-width: 70px; }  /* 종전보증금 */
+#modal-results-table th:nth-child(13), #modal-results-table td:nth-child(13) { width: 60px !important; min-width: 60px; max-width: 60px; }  /* 종전월세 */
+#modal-results-table th:nth-child(14), #modal-results-table td:nth-child(14) { width: 70px !important; min-width: 70px; max-width: 70px; }  /* 갱신권사용 */
 /* Updated 2025-11-07 18:52:19 - Owner table width fix */
 
 

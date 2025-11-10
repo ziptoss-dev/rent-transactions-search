@@ -172,6 +172,7 @@ function initCachedElements() {
     cachedElements.includeVilla = document.getElementById('include-villa');
     cachedElements.includeDagagu = document.getElementById('include-dagagu');
     cachedElements.includeOfficetel = document.getElementById('include-officetel');
+    cachedElements.lhOnly = document.getElementById('lh-only');
     cachedElements.contractEnd = document.getElementById('contract-end');
     cachedElements.areaMin = document.getElementById('area-min');
     cachedElements.areaMax = document.getElementById('area-max');
@@ -597,6 +598,7 @@ function searchTransactions(append = false) {
         include_villa: cachedElements.includeVilla.checked,
         include_dagagu: cachedElements.includeDagagu.checked,
         include_officetel: cachedElements.includeOfficetel.checked,
+        lh_only: cachedElements.lhOnly ? cachedElements.lhOnly.checked : false,
         contract_end: cachedElements.contractEnd.value.trim(),
         sido: cachedElements.sido.value,
         sigungu: Array.from(document.querySelectorAll('input[name="sigungu"]:checked')).map(cb => cb.value),
@@ -612,6 +614,8 @@ function searchTransactions(append = false) {
         page: currentPage,
         page_size: 20
     };
+
+    console.log('[DEBUG] LH 필터:', filters.lh_only);
 
     currentFilters = filters;
 
@@ -726,6 +730,12 @@ function displayResults(data, append = false) {
                 depositHTML = formatPrice(row.보증금);
             }
 
+            const lhData = row.is_lh ? {
+                support_type: row.lh_support_type,
+                room_count: row.lh_room_count,
+                support_amount: row.lh_support_amount
+            } : null;
+
             tr.innerHTML = `
                 <td><span class="badge ${badgeClass}">${row.구분}</span></td>
                 <td>${row.시도 || ''}</td>
@@ -736,7 +746,7 @@ function displayResults(data, append = false) {
                 <td><span class="building-name-clickable" data-building-name="${row.단지명 || row.건물명 || ''}" data-property-type="${row.구분 || ''}" data-sigungu-code="${row.시군구코드 || ''}" data-umd-name="${row.읍면동리 || ''}" data-jibun="${row.지번 || ''}" data-sido="${row.시도 || ''}" data-sigungu="${row.시군구 || ''}">${row.단지명 || row.건물명 || ''}</span></td>
                 <td>${row.층 || ''}</td>
                 <td>${row.면적 || ''}</td>
-                <td>${getContractTypeBadge(row.월세)}</td>
+                <td>${getContractTypeBadge(row.월세, row.is_lh, lhData)}</td>
                 <td>${depositHTML}</td>
                 <td>${formatPrice(row.월세)}</td>
                 <td>${row.계약년월 || ''}</td>
@@ -772,6 +782,13 @@ function displayResults(data, append = false) {
                     depositHTML = formatPrice(row.보증금);
                 }
 
+                // LH 데이터 구성
+                const lhData = row.is_lh ? {
+                    support_type: row.lh_support_type,
+                    room_count: row.lh_room_count,
+                    support_amount: row.lh_support_amount
+                } : null;
+
                 rowsHTML += `
                     <tr>
                         <td><span class="badge ${badgeClass}">${row.구분}</span></td>
@@ -783,7 +800,7 @@ function displayResults(data, append = false) {
                         <td><span class="building-name-clickable" data-building-name="${row.단지명 || row.건물명 || ''}" data-property-type="${row.구분 || ''}" data-sigungu-code="${row.시군구코드 || ''}" data-umd-name="${row.읍면동리 || ''}" data-jibun="${row.지번 || ''}" data-sido="${row.시도 || ''}" data-sigungu="${row.시군구 || ''}">${row.단지명 || row.건물명 || ''}</span></td>
                         <td>${row.층 || ''}</td>
                         <td>${row.면적 || ''}</td>
-                        <td>${getContractTypeBadge(row.월세)}</td>
+                        <td>${getContractTypeBadge(row.월세, row.is_lh, lhData)}</td>
                         <td>${depositHTML}</td>
                         <td>${formatPrice(row.월세)}</td>
                         <td>${row.계약년월 || ''}</td>
@@ -818,13 +835,30 @@ function getBadgeClass(type) {
 }
 
 // 전월세 구분 판단 (월세가 0이거나 없으면 전세, 있으면 월세)
-function getContractTypeBadge(monthlyRent) {
+function getContractTypeBadge(monthlyRent, isLH, lhData) {
     const rent = parseInt(String(monthlyRent || '0').replace(/,/g, ''));
-    if (rent === 0 || isNaN(rent)) {
-        return '<span class="badge badge-jeonse">전세</span>';
-    } else {
-        return '<span class="badge badge-wolse">월세</span>';
+    let badge = '';
+
+    // LH 배지
+    if (isLH && lhData) {
+        const supportType = lhData.support_type || '';
+        const roomCount = lhData.room_count || '';
+        const supportAmount = lhData.support_amount || '';
+
+        // LH 지원금은 원 단위이므로 만원 단위로 변환
+        const supportAmountInManwon = supportAmount ? Math.round(supportAmount / 10000) : 0;
+        const tooltipText = `입주자 유형: ${supportType}<br>방 갯수: ${roomCount}<br>LH지원금: ${formatPrice(supportAmountInManwon)}만원`;
+        badge += `<span class="badge badge-lh" data-tooltip-html="${tooltipText}">LH</span>`;
     }
+
+    // 전월세 배지
+    if (rent === 0 || isNaN(rent)) {
+        badge += '<span class="badge badge-jeonse">전세</span>';
+    } else {
+        badge += '<span class="badge badge-wolse">월세</span>';
+    }
+
+    return badge;
 }
 
 // 계약기간에서 기간 뱃지 생성
@@ -895,6 +929,9 @@ function resetFilters() {
     cachedElements.includeVilla.checked = true;
     cachedElements.includeDagagu.checked = true;
     cachedElements.includeOfficetel.checked = true;
+    if (cachedElements.lhOnly) {
+        cachedElements.lhOnly.checked = false;
+    }
 
     // 드롭다운 초기화
     cachedElements.sido.value = '';
@@ -1216,6 +1253,13 @@ function displayBuildingTransactions(data, propertyType, append = false) {
             depositHTML = formatPrice(row.보증금);
         }
 
+        // LH 데이터 구성
+        const lhData = row.is_lh ? {
+            support_type: row.lh_support_type,
+            room_count: row.lh_room_count,
+            support_amount: row.lh_support_amount
+        } : null;
+
         return `
             <tr>
                 <td>${row.계약년월 || ''}</td>
@@ -1223,7 +1267,7 @@ function displayBuildingTransactions(data, propertyType, append = false) {
                 <td class="unit-info-cell">${formatUnitInfo(row)}</td>
                 <td>${row.층 || ''}</td>
                 <td>${row.면적 || ''}</td>
-                <td>${getContractTypeBadge(row.월세)}</td>
+                <td>${getContractTypeBadge(row.월세, row.is_lh, lhData)}</td>
                 <td>${depositHTML}</td>
                 <td>${formatPrice(row.월세)}</td>
                 <td>${row.건축년도 || ''}</td>
@@ -1284,6 +1328,13 @@ function reRenderModalTable() {
             depositHTML = formatPrice(row.보증금);
         }
 
+        // LH 데이터 구성
+        const lhData = row.is_lh ? {
+            support_type: row.lh_support_type,
+            room_count: row.lh_room_count,
+            support_amount: row.lh_support_amount
+        } : null;
+
         return `
             <tr>
                 <td>${row.계약년월 || ''}</td>
@@ -1291,7 +1342,7 @@ function reRenderModalTable() {
                 <td class="unit-info-cell">${formatUnitInfo(row)}</td>
                 <td>${row.층 || ''}</td>
                 <td>${row.면적 || ''}</td>
-                <td>${getContractTypeBadge(row.월세)}</td>
+                <td>${getContractTypeBadge(row.월세, row.is_lh, lhData)}</td>
                 <td>${depositHTML}</td>
                 <td>${formatPrice(row.월세)}</td>
                 <td>${row.건축년도 || ''}</td>
@@ -1445,14 +1496,18 @@ function hideTooltip() {
 // 보증금 툴팁 이벤트 (hover + click) - 오피스텔 기준시가 & 아파트/연립다세대 공동주택가격
 document.addEventListener('mouseover', function(e) {
     if (e.target && (e.target.classList.contains('deposit-with-standard-price') ||
-                     e.target.classList.contains('deposit-with-apartment-price'))) {
+                     e.target.classList.contains('deposit-with-apartment-price') ||
+                     e.target.classList.contains('lh-help-icon') ||
+                     e.target.classList.contains('badge-lh'))) {
         showTooltip(e.target);
     }
 });
 
 document.addEventListener('mouseout', function(e) {
     if (e.target && (e.target.classList.contains('deposit-with-standard-price') ||
-                     e.target.classList.contains('deposit-with-apartment-price'))) {
+                     e.target.classList.contains('deposit-with-apartment-price') ||
+                     e.target.classList.contains('lh-help-icon') ||
+                     e.target.classList.contains('badge-lh'))) {
         // 클릭으로 고정된 상태가 아니면 숨김
         if (!e.target.classList.contains('tooltip-active')) {
             hideTooltip();
@@ -1462,11 +1517,13 @@ document.addEventListener('mouseout', function(e) {
 
 document.addEventListener('click', function(e) {
     if (e.target && (e.target.classList.contains('deposit-with-standard-price') ||
-                     e.target.classList.contains('deposit-with-apartment-price'))) {
+                     e.target.classList.contains('deposit-with-apartment-price') ||
+                     e.target.classList.contains('lh-help-icon') ||
+                     e.target.classList.contains('badge-lh'))) {
         e.stopPropagation();
 
         // 다른 모든 활성화된 툴팁 닫기
-        document.querySelectorAll('.deposit-with-standard-price.tooltip-active, .deposit-with-apartment-price.tooltip-active').forEach(el => {
+        document.querySelectorAll('.deposit-with-standard-price.tooltip-active, .deposit-with-apartment-price.tooltip-active, .lh-help-icon.tooltip-active, .badge-lh.tooltip-active').forEach(el => {
             if (el !== e.target) {
                 el.classList.remove('tooltip-active');
             }
@@ -1482,7 +1539,7 @@ document.addEventListener('click', function(e) {
         }
     } else {
         // 다른 곳 클릭 시 모든 툴팁 닫기
-        document.querySelectorAll('.deposit-with-standard-price.tooltip-active, .deposit-with-apartment-price.tooltip-active').forEach(el => {
+        document.querySelectorAll('.deposit-with-standard-price.tooltip-active, .deposit-with-apartment-price.tooltip-active, .lh-help-icon.tooltip-active, .badge-lh.tooltip-active').forEach(el => {
             el.classList.remove('tooltip-active');
         });
         hideTooltip();

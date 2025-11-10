@@ -64,6 +64,201 @@ def get_db_connection():
     _db_connection = psycopg.connect(**DB_CONFIG, row_factory=dict_row)
     return _db_connection
 
+def add_lh_info_to_results(results, cursor):
+    """실거래가 결과에 LH 정보 추가 (배치 조회로 최적화)"""
+    print(f"[DEBUG LH] add_lh_info_to_results 호출됨, results 개수: {len(results) if results else 0}")
+    if not results:
+        return results
+
+    # 기타 house_type들 (4개 카테고리에 속하지 않는 타입들)
+    OTHER_TYPES = ['기숙사및특수사회시설', '기타', '비거주용건물내주택', '점포주택등복합용도주택']
+
+    # 주택 유형별 매핑 (각 카테고리는 지정된 house_types + 기타들을 모두 검색)
+    type_mapping = {
+        '아파트': ('apt', ['아파트'] + OTHER_TYPES, False),  # False = 일반 쿼리 형식
+        '연립다세대': ('villa', ['연립주택', '다세대주택', '도시형생활주택'] + OTHER_TYPES, False),
+        '단독다가구': ('dagagu', ['다가구용단독주택', '다중주택', '단독주택'] + OTHER_TYPES, True),  # True = 단독다가구 쿼리 형식
+        '오피스텔': ('officetel', ['오피스텔'] + OTHER_TYPES, False)
+    }
+
+    # 주택 유형별로 그룹화
+    grouped_results = {'apt': [], 'villa': [], 'dagagu': [], 'officetel': []}
+
+    for idx, row in enumerate(results):
+        property_type = row.get('구분', '')
+        print(f"[DEBUG LH] Row {idx}: 구분={property_type}, 시군구코드={row.get('시군구코드', 'N/A')}, 면적={row.get('면적', 'N/A')}, 계약년월={row.get('계약년월', 'N/A')}, 보증금={row.get('보증금', 'N/A')}")
+
+        # type_mapping에 없으면 스킵 (is_lh = False)
+        if property_type not in type_mapping:
+            row['is_lh'] = False
+            print(f"[DEBUG LH] Row {idx}: 구분이 매핑에 없음, 스킵")
+            continue
+
+        source_type, house_types, is_dagagu_format = type_mapping[property_type]
+        print(f"[DEBUG LH] Row {idx}: source_type={source_type}, house_types={house_types[:3]}...")
+
+        # 매칭 조건 준비
+        sggcd = row.get('시군구코드', '')
+        area = row.get('면적', '')
+        contract_ym = row.get('계약년월', '')
+        contract_day = row.get('계약일', '')
+        deposit = row.get('보증금', '')
+
+        if not all([sggcd, area, contract_ym, contract_day, deposit]):
+            row['is_lh'] = False
+            continue
+
+        # 계약년월에서 년도와 월 추출
+        if len(contract_ym) == 6:
+            year = contract_ym[:4]
+            month = contract_ym[4:6].lstrip('0') or '0'
+        else:
+            row['is_lh'] = False
+            continue
+
+        # 보증금 숫자 변환
+        try:
+            deposit_num = int(str(deposit).replace(',', '')) * 10000
+        except:
+            row['is_lh'] = False
+            continue
+
+        grouped_results[source_type].append({
+            'idx': idx,
+            'sggcd': sggcd,
+            'area': area,
+            'year': year,
+            'month': month,
+            'contract_ym': contract_ym,
+            'day': contract_day,
+            'deposit': deposit_num
+        })
+
+    # 주택 유형별 배치 조회
+    print(f"[DEBUG LH] grouped_results 키: {list(grouped_results.keys())}", flush=True)
+    for source_type, items in grouped_results.items():
+        print(f"[DEBUG LH] source_type={source_type}, items 개수={len(items)}", flush=True)
+        if not items:
+            print(f"[DEBUG LH] items가 비어있음, 스킵", flush=True)
+            continue
+
+        # type_mapping에서 house_types와 쿼리 형식 가져오기
+        _, house_types, is_dagagu_format = type_mapping[{v[0]: k for k, v in type_mapping.items()}[source_type]]
+        print(f"[DEBUG LH] house_types={house_types}, is_dagagu_format={is_dagagu_format}", flush=True)
+
+        if is_dagagu_format:
+            # 단독다가구 형식 (dealyear || LPAD(dealmonth))
+            conditions = []
+            params = []
+            for item in items:
+                conditions.append("(sggcd = %s AND exclusive_area::numeric = %s AND dealyear || LPAD(dealmonth::text, 2, '0') = %s AND dealday::text = %s AND ROUND(jeonse_amount) = %s)")
+                params.extend([item['sggcd'], item['area'], item['contract_ym'], item['day'], item['deposit']])
+
+            if conditions:
+                house_types_str = "', '".join(house_types)
+                lh_query = f"""
+                    SELECT
+                        sggcd,
+                        exclusive_area::text as area,
+                        dealyear || LPAD(dealmonth::text, 2, '0') as contract_ym,
+                        dealday::text as day,
+                        ROUND(jeonse_amount) as deposit,
+                        support_type,
+                        room_count,
+                        jeonse_support_amount
+                    FROM lh_rent_transactions
+                    WHERE (house_type IN ('{house_types_str}') OR house_type IS NULL)
+                        AND ({' OR '.join(conditions)})
+                """
+                cursor.execute(lh_query, params)
+                lh_results = cursor.fetchall()
+
+                # 결과 매칭 (area는 float로, deposit은 int로 변환하여 키 생성)
+                lh_dict = {}
+                for r in lh_results:
+                    try:
+                        area_key = str(float(r['area']))  # float로 변환 후 다시 str
+                        deposit_key = int(float(r['deposit']))  # float를 int로 변환
+                        key = (r['sggcd'], area_key, r['contract_ym'], r['day'], deposit_key)
+                        lh_dict[key] = r
+                    except:
+                        pass
+
+                for item in items:
+                    area_key = str(float(item['area']))  # float로 변환 후 다시 str
+                    key = (item['sggcd'], area_key, item['contract_ym'], item['day'], item['deposit'])
+                    lh_data = lh_dict.get(key)
+                    if lh_data:
+                        results[item['idx']]['lh_support_type'] = lh_data['support_type']
+                        results[item['idx']]['lh_room_count'] = lh_data['room_count']
+                        results[item['idx']]['lh_support_amount'] = lh_data['jeonse_support_amount']
+                        results[item['idx']]['is_lh'] = True
+                    else:
+                        results[item['idx']]['is_lh'] = False
+        else:
+            # 일반 형식 (아파트, 오피스텔, 연립다세대)
+            conditions = []
+            params = []
+            for item in items:
+                conditions.append("(sggcd = %s AND exclusive_area::numeric = %s AND dealyear::text = %s AND dealmonth::text = %s AND dealday::text = %s AND ROUND(jeonse_amount) = %s)")
+                params.extend([item['sggcd'], item['area'], item['year'], item['month'], item['day'], item['deposit']])
+
+            if conditions:
+                print(f"[DEBUG LH] conditions 개수: {len(conditions)}", flush=True)
+                house_types_str = "', '".join(house_types)
+                lh_query = f"""
+                    SELECT
+                        sggcd,
+                        exclusive_area::text as area,
+                        dealyear::text as year,
+                        dealmonth::text as month,
+                        dealday::text as day,
+                        ROUND(jeonse_amount) as deposit,
+                        support_type,
+                        room_count,
+                        jeonse_support_amount
+                    FROM lh_rent_transactions
+                    WHERE (house_type IN ('{house_types_str}') OR house_type IS NULL)
+                        AND ({' OR '.join(conditions)})
+                """
+                print(f"[DEBUG LH] LH 쿼리 실행 중... house_types: {house_types_str}", flush=True)
+                cursor.execute(lh_query, params)
+                lh_results = cursor.fetchall()
+                print(f"[DEBUG LH] LH 쿼리 결과: {len(lh_results)}건", flush=True)
+                if lh_results:
+                    print(f"[DEBUG LH] 첫 번째 LH 결과: {lh_results[0]}", flush=True)
+
+                # 결과 매칭 (area는 float로, deposit은 int로 변환하여 키 생성)
+                lh_dict = {}
+                for r in lh_results:
+                    try:
+                        area_key = str(float(r['area']))  # float로 변환 후 다시 str
+                        deposit_key = int(float(r['deposit']))  # float를 int로 변환
+                        key = (r['sggcd'], area_key, r['year'], r['month'], r['day'], deposit_key)
+                        lh_dict[key] = r
+                    except:
+                        pass
+
+                print(f"[DEBUG LH] lh_dict 키 개수: {len(lh_dict)}", flush=True)
+                matched_count = 0
+                for item in items:
+                    area_key = str(float(item['area']))  # float로 변환 후 다시 str
+                    key = (item['sggcd'], area_key, item['year'], item['month'], item['day'], item['deposit'])
+                    lh_data = lh_dict.get(key)
+                    if lh_data:
+                        results[item['idx']]['lh_support_type'] = lh_data['support_type']
+                        results[item['idx']]['lh_room_count'] = lh_data['room_count']
+                        results[item['idx']]['lh_support_amount'] = lh_data['jeonse_support_amount']
+                        results[item['idx']]['is_lh'] = True
+                        matched_count += 1
+                        print(f"[DEBUG LH] 매칭 성공 idx={item['idx']}, key={key}", flush=True)
+                    else:
+                        results[item['idx']]['is_lh'] = False
+                        print(f"[DEBUG LH] 매칭 실패 idx={item['idx']}, key={key}", flush=True)
+                print(f"[DEBUG LH] 전체 매칭 결과: {matched_count}/{len(items)}건", flush=True)
+
+    return results
+
 # 시도명 축약 매핑
 SIDO_ABBR = {
     '서울특별시': '서울',
@@ -359,11 +554,9 @@ def get_transactions():
         include_villa = filters.get('include_villa', True)
         include_dagagu = filters.get('include_dagagu', True)
         include_officetel = filters.get('include_officetel', True)
+        lh_only = filters.get('lh_only', False)
 
-        # 페이지네이션 파라미터 추가
-        page = filters.get('page', 1)
-        page_size = filters.get('page_size', 20)  # 기본 20개
-        offset = (page - 1) * page_size
+        print(f"[DEBUG] LH 필터 파라미터: lh_only={lh_only}, 타입={type(lh_only)}", flush=True)
 
         # 페이지네이션 파라미터 추가
         page = filters.get('page', 1)
@@ -803,7 +996,16 @@ def get_transactions():
         # 최신순 정렬
         all_results.sort(key=lambda x: (x.get('계약년월', ''), x.get('계약일', '')), reverse=True)
 
+        # LH 정보 추가
+        add_lh_info_to_results(all_results, cursor)
 
+        print(f"[DEBUG] LH 필터링 전: 총 {len(all_results)}건", flush=True)
+
+        # LH 전세임대만 필터링
+        if lh_only:
+            before_count = len(all_results)
+            all_results = [r for r in all_results if r.get('is_lh', False)]
+            print(f"[DEBUG] LH 필터링 실행: {before_count}건 -> {len(all_results)}건", flush=True)
 
         return jsonify({
             'success': True,
@@ -1659,6 +1861,7 @@ def api_search():
         include_villa = filters.get('include_villa', True)
         include_dagagu = filters.get('include_dagagu', True)
         include_officetel = filters.get('include_officetel', True)
+        lh_only = filters.get('lh_only', False)
         contract_end = filters.get('contract_end', '').strip()
         sido_name = filters.get('sido')
         sigungu_names = filters.get('sigungu', [])
@@ -1692,7 +1895,16 @@ def api_search():
 
         page = filters.get('page', 1)
         page_size = filters.get('page_size', 5)  # 성능 최적화: 초기 로딩 5건
-        offset = (page - 1) * page_size
+
+        # LH 필터 활성화 시 모든 데이터를 조회해야 함 (필터링 후 페이지네이션)
+        if lh_only:
+            # LH 필터링 시에는 SQL에서 페이지네이션 하지 않음
+            use_sql_pagination = False
+            offset = 0
+        else:
+            # 일반 검색 시에는 SQL에서 페이지네이션
+            use_sql_pagination = True
+            offset = (page - 1) * page_size
 
         # 필수값 검증: 계약만기시기 및 시군구
         if not contract_end:
@@ -1809,8 +2021,12 @@ def api_search():
                 query += " AND CAST(buildyear AS INTEGER) <= %s"
                 params.append(build_year_max)
 
-            query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
-            params.extend([page_size, offset])
+            query += " ORDER BY 계약년월 DESC, 계약일 DESC"
+
+            # LH 필터 시에는 페이지네이션 하지 않고 모든 데이터 조회
+            if use_sql_pagination:
+                query += " LIMIT %s OFFSET %s"
+                params.extend([page_size, offset])
 
             print(f"[DEBUG] 쿼리 실행 중...")
             print(f"[DEBUG] 파라미터 개수: {len(params)}")
@@ -1953,8 +2169,12 @@ def api_search():
                 query += " AND CAST(buildyear AS INTEGER) <= %s"
                 params.append(build_year_max)
 
-            query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
-            params.extend([page_size, offset])
+            query += " ORDER BY 계약년월 DESC, 계약일 DESC"
+
+            # LH 필터 시에는 페이지네이션 하지 않고 모든 데이터 조회
+            if use_sql_pagination:
+                query += " LIMIT %s OFFSET %s"
+                params.extend([page_size, offset])
 
             cursor.execute(query, params)
             results = cursor.fetchall()
@@ -2087,8 +2307,12 @@ def api_search():
                 query += " AND CAST(buildyear AS INTEGER) <= %s"
                 params.append(build_year_max)
 
-            query += " ORDER BY dealyear DESC, dealmonth DESC, dealday DESC LIMIT %s OFFSET %s"
-            params.extend([page_size, offset])
+            query += " ORDER BY dealyear DESC, dealmonth DESC, dealday DESC"
+
+            # LH 필터 시에는 페이지네이션 하지 않고 모든 데이터 조회
+            if use_sql_pagination:
+                query += " LIMIT %s OFFSET %s"
+                params.extend([page_size, offset])
 
             cursor.execute(query, params)
             results = cursor.fetchall()
@@ -2249,8 +2473,12 @@ def api_search():
                     END'''
                     params.append(build_year_max)
 
-                query += " ORDER BY 계약년월 DESC, 계약일 DESC LIMIT %s OFFSET %s"
-                params.extend([page_size, offset])
+                query += " ORDER BY 계약년월 DESC, 계약일 DESC"
+
+                # LH 필터 시에는 페이지네이션 하지 않고 모든 데이터 조회
+                if use_sql_pagination:
+                    query += " LIMIT %s OFFSET %s"
+                    params.extend([page_size, offset])
 
                 cursor.execute(query, params)
                 results = cursor.fetchall()
@@ -2278,8 +2506,27 @@ def api_search():
         cursor.close()
         conn.close()
 
-        # has_more 판단: 어떤 유형이라도 page_size만큼 조회되었다면 더 있을 가능성이 있음
-        has_more = any(count == page_size for count in result_counts)
+        # LH 정보 추가
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        add_lh_info_to_results(all_results, cursor)
+        cursor.close()
+        conn.close()
+
+        print(f"[DEBUG api_search] LH 필터링 전: 총 {len(all_results)}건, lh_only={lh_only}", flush=True)
+
+        # LH 전세임대만 필터링 (페이지네이션 없이 전체 반환)
+        if lh_only:
+            # LH 필터링
+            before_count = len(all_results)
+            all_results = [r for r in all_results if r.get('is_lh', False)]
+            print(f"[DEBUG api_search] LH 필터링 실행: {before_count}건 -> {len(all_results)}건 (전체 반환)", flush=True)
+
+            # LH 매칭 결과는 적으므로 페이지네이션 없이 모두 반환
+            has_more = False
+        else:
+            # 일반 검색: has_more 판단 (어떤 유형이라도 page_size만큼 조회되었다면 더 있을 가능성이 있음)
+            has_more = any(count == page_size for count in result_counts)
 
         return jsonify({
             'success': True,
@@ -2301,6 +2548,7 @@ def api_search():
 @app.route('/api/building-transactions', methods=['GET', 'POST'])
 def get_building_transactions():
     """특정 주소의 모든 실거래가 조회 (페이지네이션 지원)"""
+    print(f"[DEBUG 모달] get_building_transactions 함수 시작", flush=True)
     try:
         # GET과 POST 모두 지원
         if request.method == 'GET':
@@ -2641,6 +2889,18 @@ def get_building_transactions():
                 row['동호명'] = '-'
                 row['동호명_전체목록'] = []
                 row['동호명_더보기'] = False
+
+        # LH 정보 추가를 위해 필요한 키 추가
+        print(f"[DEBUG 모달] LH 정보 추가 시작 - results 개수: {len(results)}, property_type: {property_type}", flush=True)
+        for row in results:
+            row['구분'] = property_type
+            if '시군구코드' not in row:
+                row['시군구코드'] = sigungu_code
+
+        # LH 정보 추가
+        print(f"[DEBUG 모달] add_lh_info_to_results 호출 직전", flush=True)
+        add_lh_info_to_results(results, cursor)
+        print(f"[DEBUG 모달] add_lh_info_to_results 호출 완료", flush=True)
 
         cursor.close()
         # 연결은 재사용을 위해 닫지 않음

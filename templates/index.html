@@ -134,6 +134,15 @@
                 </div>
             </div>
 
+            <!-- LH 전세임대 필터 -->
+            <div style="margin: 16px 0;">
+                <label class="checkbox-label">
+                    <input type="checkbox" id="lh-only" value="lh">
+                    <span style="color: #16a34a; font-weight: 600;">LH 전세임대만 보기</span>
+                    <span class="lh-help-icon" data-tooltip-html="LH 전세임대계약 공공데이터와 일치하는 실거래가만 검색합니다.<br>현재 LH 전세임대계약 중 약 80%가량이 국토부 실거래가에서 누락되어 있어 데이터가 많지는 않습니다.">?</span>
+                </label>
+            </div>
+
             <div class="button-group">
                 <button type="button" class="btn btn-secondary" id="reset-btn">초기화</button>
                 <button type="button" class="btn btn-primary" id="search-btn">검색</button>
@@ -260,25 +269,51 @@
         </div>
     </div>
 
-    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/main.js') }}?v=3"></script>
     <script>
         // 테이블 컬럼 너비 강제 적용
         document.addEventListener('DOMContentLoaded', function() {
             function fixTableColumns() {
-                // 5번째 컬럼 (지번) - 좁게
-                const addressColumns = document.querySelectorAll('table th:nth-child(5), table td:nth-child(5)');
+                // 메인 테이블: 5번째 컬럼 (지번) - 좁게
+                const addressColumns = document.querySelectorAll('#results-table th:nth-child(5), #results-table td:nth-child(5)');
                 addressColumns.forEach(col => {
                     col.style.width = '80px';
                     col.style.maxWidth = '80px';
                     col.style.minWidth = '80px';
                 });
 
-                // 6번째 컬럼 (건물명) - 170px
-                const buildingColumns = document.querySelectorAll('table th:nth-child(6), table td:nth-child(6)');
-                buildingColumns.forEach(col => {
-                    col.style.width = '170px';
-                    col.style.maxWidth = '170px';
-                    col.style.minWidth = '170px';
+                // 메인 테이블: 6번째 컬럼 (추정 호실 후보군) - 좁게
+                const unitColumns = document.querySelectorAll('#results-table th:nth-child(6), #results-table td:nth-child(6)');
+                unitColumns.forEach(col => {
+                    col.style.width = '100px';
+                    col.style.maxWidth = '100px';
+                    col.style.minWidth = '100px';
+                });
+
+                // 메인 테이블: 10번째 컬럼 (전월세구분) - 넓게
+                const badgeColumns = document.querySelectorAll('#results-table th:nth-child(10), #results-table td:nth-child(10)');
+                badgeColumns.forEach(col => {
+                    col.style.width = '120px';
+                    col.style.maxWidth = '120px';
+                    col.style.minWidth = '120px';
+                    col.style.whiteSpace = 'nowrap';
+                });
+
+                // 모달 테이블: 3번째 컬럼 (추정 호실 후보군) - 좁게
+                const modalUnitColumns = document.querySelectorAll('#modal-results-table th:nth-child(3), #modal-results-table td:nth-child(3)');
+                modalUnitColumns.forEach(col => {
+                    col.style.width = '70px';
+                    col.style.maxWidth = '70px';
+                    col.style.minWidth = '70px';
+                });
+
+                // 모달 테이블: 6번째 컬럼 (구분/전월세) - 넓게
+                const modalBadgeColumns = document.querySelectorAll('#modal-results-table th:nth-child(6), #modal-results-table td:nth-child(6)');
+                modalBadgeColumns.forEach(col => {
+                    col.style.width = '130px';
+                    col.style.maxWidth = '130px';
+                    col.style.minWidth = '130px';
+                    col.style.whiteSpace = 'nowrap';
                 });
             }
 
