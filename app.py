@@ -163,11 +163,10 @@ def add_lh_info_to_results(results, cursor):
                         dealyear || LPAD(dealmonth::text, 2, '0') as contract_ym,
                         dealday::text as day,
                         ROUND(jeonse_amount) as deposit,
-                        support_type,
                         room_count,
                         jeonse_support_amount
                     FROM lh_rent_transactions
-                    WHERE (house_type IN ('{house_types_str}') OR house_type IS NULL)
+                    WHERE (housing_type IN ('{house_types_str}') OR housing_type IS NULL)
                         AND ({' OR '.join(conditions)})
                 """
                 cursor.execute(lh_query, params)
@@ -189,7 +188,6 @@ def add_lh_info_to_results(results, cursor):
                     key = (item['sggcd'], area_key, item['contract_ym'], item['day'], item['deposit'])
                     lh_data = lh_dict.get(key)
                     if lh_data:
-                        results[item['idx']]['lh_support_type'] = lh_data['support_type']
                         results[item['idx']]['lh_room_count'] = lh_data['room_count']
                         results[item['idx']]['lh_support_amount'] = lh_data['jeonse_support_amount']
                         results[item['idx']]['is_lh'] = True
@@ -214,11 +212,10 @@ def add_lh_info_to_results(results, cursor):
                         dealmonth::text as month,
                         dealday::text as day,
                         ROUND(jeonse_amount) as deposit,
-                        support_type,
                         room_count,
                         jeonse_support_amount
                     FROM lh_rent_transactions
-                    WHERE (house_type IN ('{house_types_str}') OR house_type IS NULL)
+                    WHERE (housing_type IN ('{house_types_str}') OR housing_type IS NULL)
                         AND ({' OR '.join(conditions)})
                 """
                 print(f"[DEBUG LH] LH 쿼리 실행 중... house_types: {house_types_str}", flush=True)
@@ -246,7 +243,6 @@ def add_lh_info_to_results(results, cursor):
                     key = (item['sggcd'], area_key, item['year'], item['month'], item['day'], item['deposit'])
                     lh_data = lh_dict.get(key)
                     if lh_data:
-                        results[item['idx']]['lh_support_type'] = lh_data['support_type']
                         results[item['idx']]['lh_room_count'] = lh_data['room_count']
                         results[item['idx']]['lh_support_amount'] = lh_data['jeonse_support_amount']
                         results[item['idx']]['is_lh'] = True
