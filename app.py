@@ -2617,13 +2617,13 @@ def get_building_transactions():
                 params.append(building_name)
 
         elif property_type == '연립다세대':
-            # 연립다세대: sggcd(1), umdnm(2), jibun(3), mhousenm(4)
+            # 연립다세대: sggcd(1), umdnm(2), mhousenm(3), jibun(4)
             where_clause = f'"{col_names[1]}" = %s AND "{col_names[2]}" = %s'
             if jibun:
-                where_clause += f' AND "{col_names[3]}" = %s'
+                where_clause += f' AND "{col_names[4]}" = %s'
                 params.append(jibun)
             if building_name:
-                where_clause += f' AND "{col_names[4]}" = %s'
+                where_clause += f' AND "{col_names[3]}" = %s'
                 params.append(building_name)
 
         elif property_type == '오피스텔':
@@ -2684,14 +2684,75 @@ def get_building_transactions():
                 LIMIT %s OFFSET %s
             '''
         elif property_type == '연립다세대':
-            # 연립다세대: jibun(3), excluusear(5), dealyear(6), dealmonth(7), dealday(8),
-            # deposit(9), monthlyrent(10), floor(11), buildyear(12), contracttype(14),
-            # contractterm(15), predeposit(16), premonthlyrent(17), userrright(18)
+            # 연립다세대: sggcd(1), umdnm(2), mhousenm(3), jibun(4), buildyear(5), excluusear(6),
+            # dealyear(7), dealmonth(8), dealday(9), deposit(10), monthlyrent(11), floor(12),
+            # contractterm(13), contracttype(14), userrright(15), predeposit(16), premonthlyrent(17), housetype(18)
             query = f'''
                 SELECT
                     "{col_names[1]}" as 시군구코드,
                     "{col_names[2]}" as 읍면동리,
-                    COALESCE(NULLIF("{col_names[3]}", ''), '') as 지번,
+                    COALESCE(NULLIF("{col_names[4]}", ''), '') as 지번,
+                    COALESCE(CAST("{col_names[12]}" AS TEXT), '') as 층,
+                    COALESCE(CAST("{col_names[6]}" AS TEXT), '') as 면적,
+                    COALESCE(CAST("{col_names[10]}" AS TEXT), '') as 보증금,
+                    COALESCE(CAST("{col_names[11]}" AS TEXT), '') as 월세,
+                    CONCAT(
+                        LPAD(CAST(COALESCE(NULLIF("{col_names[7]}", ''), '0') AS TEXT), 4, '0'),
+                        LPAD(CAST(COALESCE(NULLIF("{col_names[8]}", ''), '0') AS TEXT), 2, '0')
+                    ) as 계약년월,
+                    COALESCE(NULLIF("{col_names[9]}", ''), '') as 계약일,
+                    COALESCE(CAST("{col_names[5]}" AS TEXT), '') as 건축년도,
+                    COALESCE(NULLIF("{col_names[14]}", ''), '') as 계약구분,
+                    COALESCE(NULLIF("{col_names[13]}", ''), '') as 계약기간,
+                    COALESCE(CAST("{col_names[16]}" AS TEXT), '') as 종전계약보증금,
+                    COALESCE(CAST("{col_names[17]}" AS TEXT), '') as 종전계약월세,
+                    COALESCE(NULLIF("{col_names[15]}", ''), '') as 갱신요구권사용
+                FROM {table_name}
+                WHERE {where_clause}
+                ORDER BY CONCAT(
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[7]}", ''), '0') AS TEXT), 4, '0'),
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[8]}", ''), '0') AS TEXT), 2, '0')
+                ) DESC, CAST(NULLIF("{col_names[9]}", '') AS INTEGER) DESC NULLS LAST
+                LIMIT %s OFFSET %s
+            '''
+        elif property_type == '오피스텔':
+            # 오피스텔: sggcd(1), sggnm(2), umdnm(3), jibun(4), offiname(5), excluusear(6),
+            # dealyear(7), dealmonth(8), dealday(9), deposit(10), monthlyrent(11), floor(12),
+            # buildyear(13), contractterm(14), contracttype(15), userrright(16), predeposit(17), premonthlyrent(18)
+            # 성능 최적화: LEFT JOIN 제거, batch fetch로 기준시가 조회
+            query = f'''
+                SELECT
+                    COALESCE(NULLIF("{col_names[4]}", ''), '') as 지번,
+                    COALESCE(CAST("{col_names[12]}" AS TEXT), '') as 층,
+                    COALESCE(CAST("{col_names[6]}" AS TEXT), '') as 면적,
+                    COALESCE(CAST("{col_names[10]}" AS TEXT), '') as 보증금,
+                    COALESCE(CAST("{col_names[11]}" AS TEXT), '') as 월세,
+                    CONCAT(
+                        LPAD(CAST(COALESCE(NULLIF("{col_names[7]}", ''), '0') AS TEXT), 4, '0'),
+                        LPAD(CAST(COALESCE(NULLIF("{col_names[8]}", ''), '0') AS TEXT), 2, '0')
+                    ) as 계약년월,
+                    COALESCE(NULLIF("{col_names[9]}", ''), '') as 계약일,
+                    COALESCE(CAST("{col_names[13]}" AS TEXT), '') as 건축년도,
+                    COALESCE(NULLIF("{col_names[15]}", ''), '') as 계약구분,
+                    COALESCE(NULLIF("{col_names[14]}", ''), '') as 계약기간,
+                    COALESCE(CAST("{col_names[17]}" AS TEXT), '') as 종전계약보증금,
+                    COALESCE(CAST("{col_names[18]}" AS TEXT), '') as 종전계약월세,
+                    COALESCE(NULLIF("{col_names[16]}", ''), '') as 갱신요구권사용
+                FROM {table_name}
+                WHERE {where_clause}
+                ORDER BY CONCAT(
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[7]}", ''), '0') AS TEXT), 4, '0'),
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[8]}", ''), '0') AS TEXT), 2, '0')
+                ) DESC, CAST(NULLIF("{col_names[9]}", '') AS INTEGER) DESC NULLS LAST
+                LIMIT %s OFFSET %s
+            '''
+        else:  # 아파트
+            # 아파트: sggcd(1), umdnm(2), aptnm(3), jibun(4), excluusear(5),
+            # dealyear(6), dealmonth(7), dealday(8), deposit(9), monthlyrent(10), floor(11),
+            # buildyear(12), contractterm(13), contracttype(14), userrright(15), predeposit(16), premonthlyrent(17)
+            query = f'''
+                SELECT
+                    COALESCE(NULLIF("{col_names[4]}", ''), '') as 지번,
                     COALESCE(CAST("{col_names[11]}" AS TEXT), '') as 층,
                     COALESCE(CAST("{col_names[5]}" AS TEXT), '') as 면적,
                     COALESCE(CAST("{col_names[9]}" AS TEXT), '') as 보증금,
@@ -2703,67 +2764,6 @@ def get_building_transactions():
                     COALESCE(NULLIF("{col_names[8]}", ''), '') as 계약일,
                     COALESCE(CAST("{col_names[12]}" AS TEXT), '') as 건축년도,
                     COALESCE(NULLIF("{col_names[14]}", ''), '') as 계약구분,
-                    COALESCE(NULLIF("{col_names[15]}", ''), '') as 계약기간,
-                    COALESCE(CAST("{col_names[16]}" AS TEXT), '') as 종전계약보증금,
-                    COALESCE(CAST("{col_names[17]}" AS TEXT), '') as 종전계약월세,
-                    COALESCE(NULLIF("{col_names[18]}", ''), '') as 갱신요구권사용
-                FROM {table_name}
-                WHERE {where_clause}
-                ORDER BY CONCAT(
-                    LPAD(CAST(COALESCE(NULLIF("{col_names[6]}", ''), '0') AS TEXT), 4, '0'),
-                    LPAD(CAST(COALESCE(NULLIF("{col_names[7]}", ''), '0') AS TEXT), 2, '0')
-                ) DESC, CAST(NULLIF("{col_names[8]}", '') AS INTEGER) DESC NULLS LAST
-                LIMIT %s OFFSET %s
-            '''
-        elif property_type == '오피스텔':
-            # 오피스텔: jibun(4), excluusear(6), floor(7), buildyear(8), dealyear(9),
-            # dealmonth(10), dealday(11), deposit(12), monthlyrent(13), contracttype(14),
-            # contractterm(15), predeposit(16), premonthlyrent(17), userrright(18)
-            # 성능 최적화: LEFT JOIN 제거, batch fetch로 기준시가 조회
-            query = f'''
-                SELECT
-                    COALESCE(NULLIF("{col_names[4]}", ''), '') as 지번,
-                    COALESCE(CAST("{col_names[7]}" AS TEXT), '') as 층,
-                    COALESCE(CAST("{col_names[6]}" AS TEXT), '') as 면적,
-                    COALESCE(CAST("{col_names[12]}" AS TEXT), '') as 보증금,
-                    COALESCE(CAST("{col_names[13]}" AS TEXT), '') as 월세,
-                    CONCAT(
-                        LPAD(CAST(COALESCE(NULLIF("{col_names[9]}", ''), '0') AS TEXT), 4, '0'),
-                        LPAD(CAST(COALESCE(NULLIF("{col_names[10]}", ''), '0') AS TEXT), 2, '0')
-                    ) as 계약년월,
-                    COALESCE(NULLIF("{col_names[11]}", ''), '') as 계약일,
-                    COALESCE(CAST("{col_names[8]}" AS TEXT), '') as 건축년도,
-                    COALESCE(NULLIF("{col_names[14]}", ''), '') as 계약구분,
-                    COALESCE(NULLIF("{col_names[15]}", ''), '') as 계약기간,
-                    COALESCE(CAST("{col_names[16]}" AS TEXT), '') as 종전계약보증금,
-                    COALESCE(CAST("{col_names[17]}" AS TEXT), '') as 종전계약월세,
-                    COALESCE(NULLIF("{col_names[18]}", ''), '') as 갱신요구권사용
-                FROM {table_name}
-                WHERE {where_clause}
-                ORDER BY CONCAT(
-                    LPAD(CAST(COALESCE(NULLIF("{col_names[9]}", ''), '0') AS TEXT), 4, '0'),
-                    LPAD(CAST(COALESCE(NULLIF("{col_names[10]}", ''), '0') AS TEXT), 2, '0')
-                ) DESC, CAST(NULLIF("{col_names[11]}", '') AS INTEGER) DESC NULLS LAST
-                LIMIT %s OFFSET %s
-            '''
-        else:  # 아파트
-            # 아파트: jibun(3), aptnm(4), excluusear(5), floor(6), buildyear(7),
-            # dealyear(8), dealmonth(9), dealday(10), deposit(11), monthlyrent(12),
-            # contractterm(13), contracttype(14), userrright(15), predeposit(16), premonthlyrent(17)
-            query = f'''
-                SELECT
-                    COALESCE(NULLIF("{col_names[3]}", ''), '') as 지번,
-                    COALESCE(CAST("{col_names[6]}" AS TEXT), '') as 층,
-                    COALESCE(CAST("{col_names[5]}" AS TEXT), '') as 면적,
-                    COALESCE(CAST("{col_names[11]}" AS TEXT), '') as 보증금,
-                    COALESCE(CAST("{col_names[12]}" AS TEXT), '') as 월세,
-                    CONCAT(
-                        LPAD(CAST(COALESCE(NULLIF("{col_names[8]}", ''), '0') AS TEXT), 4, '0'),
-                        LPAD(CAST(COALESCE(NULLIF("{col_names[9]}", ''), '0') AS TEXT), 2, '0')
-                    ) as 계약년월,
-                    COALESCE(NULLIF("{col_names[10]}", ''), '') as 계약일,
-                    COALESCE(CAST("{col_names[7]}" AS TEXT), '') as 건축년도,
-                    COALESCE(NULLIF("{col_names[14]}", ''), '') as 계약구분,
                     COALESCE(NULLIF("{col_names[13]}", ''), '') as 계약기간,
                     COALESCE(CAST("{col_names[16]}" AS TEXT), '') as 종전계약보증금,
                     COALESCE(CAST("{col_names[17]}" AS TEXT), '') as 종전계약월세,
@@ -2771,9 +2771,9 @@ def get_building_transactions():
                 FROM {table_name}
                 WHERE {where_clause}
                 ORDER BY CONCAT(
-                    LPAD(CAST(COALESCE(NULLIF("{col_names[8]}", ''), '0') AS TEXT), 4, '0'),
-                    LPAD(CAST(COALESCE(NULLIF("{col_names[9]}", ''), '0') AS TEXT), 2, '0')
-                ) DESC, CAST(NULLIF("{col_names[10]}", '') AS INTEGER) DESC NULLS LAST
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[6]}", ''), '0') AS TEXT), 4, '0'),
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[7]}", ''), '0') AS TEXT), 2, '0')
+                ) DESC, CAST(NULLIF("{col_names[8]}", '') AS INTEGER) DESC NULLS LAST
                 LIMIT %s OFFSET %s
             '''
 
