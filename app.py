@@ -866,6 +866,7 @@ def get_transactions():
                     sggcd,
                     umdnm,
                     jibun,
+                    offiname,
                     offiname as aptnm,
                     excluusear as 계약면적,
                     dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
@@ -2695,8 +2696,8 @@ def get_building_transactions():
                     COALESCE(NULLIF("{col_names[9]}", ''), '') as 보증금,
                     COALESCE(NULLIF("{col_names[10]}", ''), '') as 월세,
                     CONCAT(
-                        LPAD(COALESCE(NULLIF("{col_names[6]}", ''), ''), 4, '0'),
-                        LPAD(COALESCE(NULLIF("{col_names[7]}", ''), ''), 2, '0')
+                        LPAD(CAST(COALESCE(NULLIF("{col_names[6]}", ''), '0') AS TEXT), 4, '0'),
+                        LPAD(CAST(COALESCE(NULLIF("{col_names[7]}", ''), '0') AS TEXT), 2, '0')
                     ) as 계약년월,
                     COALESCE(NULLIF("{col_names[8]}", ''), '') as 계약일,
                     COALESCE(NULLIF("{col_names[12]}", ''), '') as 건축년도,
@@ -2708,8 +2709,8 @@ def get_building_transactions():
                 FROM {table_name}
                 WHERE {where_clause}
                 ORDER BY CONCAT(
-                    LPAD(COALESCE(NULLIF("{col_names[6]}", ''), ''), 4, '0'),
-                    LPAD(COALESCE(NULLIF("{col_names[7]}", ''), ''), 2, '0')
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[6]}", ''), '0') AS TEXT), 4, '0'),
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[7]}", ''), '0') AS TEXT), 2, '0')
                 ) DESC, CAST(NULLIF("{col_names[8]}", '') AS INTEGER) DESC NULLS LAST
                 LIMIT %s OFFSET %s
             '''
@@ -2726,8 +2727,8 @@ def get_building_transactions():
                     COALESCE(NULLIF("{col_names[12]}", ''), '') as 보증금,
                     COALESCE(NULLIF("{col_names[13]}", ''), '') as 월세,
                     CONCAT(
-                        LPAD(COALESCE(NULLIF("{col_names[9]}", ''), ''), 4, '0'),
-                        LPAD(COALESCE(NULLIF("{col_names[10]}", ''), ''), 2, '0')
+                        LPAD(CAST(COALESCE(NULLIF("{col_names[9]}", ''), '0') AS TEXT), 4, '0'),
+                        LPAD(CAST(COALESCE(NULLIF("{col_names[10]}", ''), '0') AS TEXT), 2, '0')
                     ) as 계약년월,
                     COALESCE(NULLIF("{col_names[11]}", ''), '') as 계약일,
                     COALESCE(NULLIF("{col_names[8]}", ''), '') as 건축년도,
@@ -2739,8 +2740,8 @@ def get_building_transactions():
                 FROM {table_name}
                 WHERE {where_clause}
                 ORDER BY CONCAT(
-                    LPAD(COALESCE(NULLIF("{col_names[9]}", ''), ''), 4, '0'),
-                    LPAD(COALESCE(NULLIF("{col_names[10]}", ''), ''), 2, '0')
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[9]}", ''), '0') AS TEXT), 4, '0'),
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[10]}", ''), '0') AS TEXT), 2, '0')
                 ) DESC, CAST(NULLIF("{col_names[11]}", '') AS INTEGER) DESC NULLS LAST
                 LIMIT %s OFFSET %s
             '''
@@ -2756,8 +2757,8 @@ def get_building_transactions():
                     COALESCE(NULLIF("{col_names[11]}", ''), '') as 보증금,
                     COALESCE(NULLIF("{col_names[12]}", ''), '') as 월세,
                     CONCAT(
-                        LPAD(COALESCE(NULLIF("{col_names[8]}", ''), ''), 4, '0'),
-                        LPAD(COALESCE(NULLIF("{col_names[9]}", ''), ''), 2, '0')
+                        LPAD(CAST(COALESCE(NULLIF("{col_names[8]}", ''), '0') AS TEXT), 4, '0'),
+                        LPAD(CAST(COALESCE(NULLIF("{col_names[9]}", ''), '0') AS TEXT), 2, '0')
                     ) as 계약년월,
                     COALESCE(NULLIF("{col_names[10]}", ''), '') as 계약일,
                     COALESCE(NULLIF("{col_names[7]}", ''), '') as 건축년도,
@@ -2769,8 +2770,8 @@ def get_building_transactions():
                 FROM {table_name}
                 WHERE {where_clause}
                 ORDER BY CONCAT(
-                    LPAD(COALESCE(NULLIF("{col_names[8]}", ''), ''), 4, '0'),
-                    LPAD(COALESCE(NULLIF("{col_names[9]}", ''), ''), 2, '0')
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[8]}", ''), '0') AS TEXT), 4, '0'),
+                    LPAD(CAST(COALESCE(NULLIF("{col_names[9]}", ''), '0') AS TEXT), 2, '0')
                 ) DESC, CAST(NULLIF("{col_names[10]}", '') AS INTEGER) DESC NULLS LAST
                 LIMIT %s OFFSET %s
             '''
