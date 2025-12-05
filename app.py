@@ -346,7 +346,7 @@ def load_building_cache():
         tables = [
             ('apt_rent_transactions', 'aptnm', '아파트'),
             ('villa_rent_transactions', 'mhousenm', '연립다세대'),
-            ('officetel_rent_transactions', 'offinm', '오피스텔'),
+            ('officetel_rent_transactions', 'offiname', '오피스텔'),
             ('dagagu_rent_transactions', 'NULL', '단독다가구')
         ]
 
@@ -866,7 +866,7 @@ def get_transactions():
                     sggcd,
                     umdnm,
                     jibun,
-                    offinm as aptnm,
+                    offiname as aptnm,
                     excluusear as 계약면적,
                     dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
                     dealday as 계약일,
@@ -1104,7 +1104,7 @@ def get_building_transactions_old(building_name):
                 sggcd,
                 umdnm,
                 jibun,
-                offinm as aptnm,
+                offiname as aptnm,
                 excluusear as 계약면적,
                 dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
                 dealday as 계약일,
@@ -1118,7 +1118,7 @@ def get_building_transactions_old(building_name):
                 premonthlyrent as 종전계약월세,
                 userrright as 갱신요구권사용
             FROM officetel_rent_transactions
-            WHERE sggcd = %s AND umdnm = %s AND offinm = %s
+            WHERE sggcd = %s AND umdnm = %s AND offiname = %s
             ORDER BY 계약년월 DESC, 계약일 DESC
         """
 
@@ -2235,7 +2235,7 @@ def api_search():
                     sggcd as 시군구코드,
                     umdnm as 읍면동리,
                     jibun as 지번,
-                    offinm as 단지명,
+                    offiname as 단지명,
                     excluusear as 면적,
                     dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
                     dealday as 계약일,
@@ -2625,7 +2625,7 @@ def get_building_transactions():
                 params.append(building_name)
 
         elif property_type == '오피스텔':
-            # 오피스텔: sggcd(1), umdnm(3), jibun(4), offinm(5)
+            # 오피스텔: sggcd(1), umdnm(3), jibun(4), offiname(5)
             where_clause = f'"{col_names[1]}" = %s AND "{col_names[3]}" = %s'
             if jibun:
                 where_clause += f' AND "{col_names[4]}" = %s'
@@ -2962,7 +2962,7 @@ def search_building():
         tables = [
             ('apt_rent_transactions', 'aptnm', '아파트'),
             ('villa_rent_transactions', 'mhousenm', '연립다세대'),
-            ('officetel_rent_transactions', 'offinm', '오피스텔'),
+            ('officetel_rent_transactions', 'offiname', '오피스텔'),
             ('dagagu_rent_transactions', 'NULL', '단독다가구')
         ]
 
