@@ -349,7 +349,7 @@ def load_building_cache():
 
         tables = [
             ('apt_rent_transactions', 'aptnm', '아파트'),
-            ('villa_rent_transactions', 'mhousename', '연립다세대'),
+            ('villa_rent_transactions', 'mhousenm', '연립다세대'),
             ('officetel_rent_transactions', 'offinm', '오피스텔'),
             ('dagagu_rent_transactions', 'NULL', '단독다가구')
         ]
@@ -672,7 +672,7 @@ def get_transactions():
                     sggcd,
                     umdnm,
                     jibun,
-                    mhousename as aptnm,
+                    mhousenm as aptnm,
                     excluusear as 계약면적,
                     dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
                     dealday as 계약일,
@@ -973,9 +973,9 @@ def get_transactions():
             # 읍면동리명 - DB의 umdnm이 이미 리까지 포함되어 있음
             row['읍면동리'] = row.get('umdnm', '')
 
-            # 아파트의 경우 아파트명을 mhousename 필드에도 추가
+            # 아파트의 경우 아파트명을 mhousenm 필드에도 추가
             if 'aptnm' in row and row['aptnm']:
-                row['mhousename'] = row['aptnm']
+                row['mhousenm'] = row['aptnm']
 
             # 보증금 포맷팅 (쉼표 제거 후 숫자로 변환, 억단위 처리)
             if '보증금' in row and row['보증금']:
@@ -1078,7 +1078,7 @@ def get_building_transactions_old(building_name):
                 sggcd,
                 umdnm,
                 jibun,
-                mhousename as aptnm,
+                mhousenm as aptnm,
                 excluusear as 계약면적,
                 dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
                 dealday as 계약일,
@@ -1092,7 +1092,7 @@ def get_building_transactions_old(building_name):
                 premonthlyrent as 종전계약월세,
                 userrright as 갱신요구권사용
             FROM villa_rent_transactions
-            WHERE sggcd = %s AND umdnm = %s AND mhousename = %s
+            WHERE sggcd = %s AND umdnm = %s AND mhousenm = %s
             ORDER BY 계약년월 DESC, 계약일 DESC
         """
 
@@ -2101,7 +2101,7 @@ def api_search():
                     sggcd as 시군구코드,
                     umdnm as 읍면동리,
                     jibun as 지번,
-                    mhousename as 단지명,
+                    mhousenm as 단지명,
                     excluusear as 면적,
                     dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
                     dealday as 계약일,
@@ -2619,7 +2619,7 @@ def get_building_transactions():
                 params.append(building_name)
 
         elif property_type == '연립다세대':
-            # 연립다세대: sggcd(1), umdnm(2), jibun(3), mhousename(4)
+            # 연립다세대: sggcd(1), umdnm(2), jibun(3), mhousenm(4)
             where_clause = f'"{col_names[1]}" = %s AND "{col_names[2]}" = %s'
             if jibun:
                 where_clause += f' AND "{col_names[3]}" = %s'
@@ -2965,7 +2965,7 @@ def search_building():
         # 4개 테이블에서 검색
         tables = [
             ('apt_rent_transactions', 'aptnm', '아파트'),
-            ('villa_rent_transactions', 'mhousename', '연립다세대'),
+            ('villa_rent_transactions', 'mhousenm', '연립다세대'),
             ('officetel_rent_transactions', 'offinm', '오피스텔'),
             ('dagagu_rent_transactions', 'NULL', '단독다가구')
         ]
