@@ -868,6 +868,7 @@ def get_transactions():
                     jibun,
                     offiname,
                     offiname as aptnm,
+                    offiname as mhousenm,
                     excluusear as 계약면적,
                     dealyear || LPAD(dealmonth, 2, '0') as 계약년월,
                     dealday as 계약일,
@@ -2691,20 +2692,20 @@ def get_building_transactions():
                     "{col_names[1]}" as 시군구코드,
                     "{col_names[2]}" as 읍면동리,
                     COALESCE(NULLIF("{col_names[3]}", ''), '') as 지번,
-                    COALESCE(NULLIF("{col_names[11]}", ''), '') as 층,
-                    COALESCE(NULLIF("{col_names[5]}", ''), '') as 면적,
-                    COALESCE(NULLIF("{col_names[9]}", ''), '') as 보증금,
-                    COALESCE(NULLIF("{col_names[10]}", ''), '') as 월세,
+                    COALESCE(CAST("{col_names[11]}" AS TEXT), '') as 층,
+                    COALESCE(CAST("{col_names[5]}" AS TEXT), '') as 면적,
+                    COALESCE(CAST("{col_names[9]}" AS TEXT), '') as 보증금,
+                    COALESCE(CAST("{col_names[10]}" AS TEXT), '') as 월세,
                     CONCAT(
                         LPAD(CAST(COALESCE(NULLIF("{col_names[6]}", ''), '0') AS TEXT), 4, '0'),
                         LPAD(CAST(COALESCE(NULLIF("{col_names[7]}", ''), '0') AS TEXT), 2, '0')
                     ) as 계약년월,
                     COALESCE(NULLIF("{col_names[8]}", ''), '') as 계약일,
-                    COALESCE(NULLIF("{col_names[12]}", ''), '') as 건축년도,
+                    COALESCE(CAST("{col_names[12]}" AS TEXT), '') as 건축년도,
                     COALESCE(NULLIF("{col_names[14]}", ''), '') as 계약구분,
                     COALESCE(NULLIF("{col_names[15]}", ''), '') as 계약기간,
-                    COALESCE(NULLIF("{col_names[16]}", ''), '') as 종전계약보증금,
-                    COALESCE(NULLIF("{col_names[17]}", ''), '') as 종전계약월세,
+                    COALESCE(CAST("{col_names[16]}" AS TEXT), '') as 종전계약보증금,
+                    COALESCE(CAST("{col_names[17]}" AS TEXT), '') as 종전계약월세,
                     COALESCE(NULLIF("{col_names[18]}", ''), '') as 갱신요구권사용
                 FROM {table_name}
                 WHERE {where_clause}
@@ -2722,20 +2723,20 @@ def get_building_transactions():
             query = f'''
                 SELECT
                     COALESCE(NULLIF("{col_names[4]}", ''), '') as 지번,
-                    COALESCE(NULLIF("{col_names[7]}", ''), '') as 층,
-                    COALESCE(NULLIF("{col_names[6]}", ''), '') as 면적,
-                    COALESCE(NULLIF("{col_names[12]}", ''), '') as 보증금,
-                    COALESCE(NULLIF("{col_names[13]}", ''), '') as 월세,
+                    COALESCE(CAST("{col_names[7]}" AS TEXT), '') as 층,
+                    COALESCE(CAST("{col_names[6]}" AS TEXT), '') as 면적,
+                    COALESCE(CAST("{col_names[12]}" AS TEXT), '') as 보증금,
+                    COALESCE(CAST("{col_names[13]}" AS TEXT), '') as 월세,
                     CONCAT(
                         LPAD(CAST(COALESCE(NULLIF("{col_names[9]}", ''), '0') AS TEXT), 4, '0'),
                         LPAD(CAST(COALESCE(NULLIF("{col_names[10]}", ''), '0') AS TEXT), 2, '0')
                     ) as 계약년월,
                     COALESCE(NULLIF("{col_names[11]}", ''), '') as 계약일,
-                    COALESCE(NULLIF("{col_names[8]}", ''), '') as 건축년도,
+                    COALESCE(CAST("{col_names[8]}" AS TEXT), '') as 건축년도,
                     COALESCE(NULLIF("{col_names[14]}", ''), '') as 계약구분,
                     COALESCE(NULLIF("{col_names[15]}", ''), '') as 계약기간,
-                    COALESCE(NULLIF("{col_names[16]}", ''), '') as 종전계약보증금,
-                    COALESCE(NULLIF("{col_names[17]}", ''), '') as 종전계약월세,
+                    COALESCE(CAST("{col_names[16]}" AS TEXT), '') as 종전계약보증금,
+                    COALESCE(CAST("{col_names[17]}" AS TEXT), '') as 종전계약월세,
                     COALESCE(NULLIF("{col_names[18]}", ''), '') as 갱신요구권사용
                 FROM {table_name}
                 WHERE {where_clause}
@@ -2752,20 +2753,20 @@ def get_building_transactions():
             query = f'''
                 SELECT
                     COALESCE(NULLIF("{col_names[3]}", ''), '') as 지번,
-                    COALESCE(NULLIF("{col_names[6]}", ''), '') as 층,
-                    COALESCE(NULLIF("{col_names[5]}", ''), '') as 면적,
-                    COALESCE(NULLIF("{col_names[11]}", ''), '') as 보증금,
-                    COALESCE(NULLIF("{col_names[12]}", ''), '') as 월세,
+                    COALESCE(CAST("{col_names[6]}" AS TEXT), '') as 층,
+                    COALESCE(CAST("{col_names[5]}" AS TEXT), '') as 면적,
+                    COALESCE(CAST("{col_names[11]}" AS TEXT), '') as 보증금,
+                    COALESCE(CAST("{col_names[12]}" AS TEXT), '') as 월세,
                     CONCAT(
                         LPAD(CAST(COALESCE(NULLIF("{col_names[8]}", ''), '0') AS TEXT), 4, '0'),
                         LPAD(CAST(COALESCE(NULLIF("{col_names[9]}", ''), '0') AS TEXT), 2, '0')
                     ) as 계약년월,
                     COALESCE(NULLIF("{col_names[10]}", ''), '') as 계약일,
-                    COALESCE(NULLIF("{col_names[7]}", ''), '') as 건축년도,
+                    COALESCE(CAST("{col_names[7]}" AS TEXT), '') as 건축년도,
                     COALESCE(NULLIF("{col_names[14]}", ''), '') as 계약구분,
                     COALESCE(NULLIF("{col_names[13]}", ''), '') as 계약기간,
-                    COALESCE(NULLIF("{col_names[16]}", ''), '') as 종전계약보증금,
-                    COALESCE(NULLIF("{col_names[17]}", ''), '') as 종전계약월세,
+                    COALESCE(CAST("{col_names[16]}" AS TEXT), '') as 종전계약보증금,
+                    COALESCE(CAST("{col_names[17]}" AS TEXT), '') as 종전계약월세,
                     COALESCE(NULLIF("{col_names[15]}", ''), '') as 갱신요구권사용
                 FROM {table_name}
                 WHERE {where_clause}
