@@ -2396,7 +2396,7 @@ def api_search():
                         "{col_names[11]}" as 계약일,
                         CASE
                             WHEN "{col_names[14]}" IS NULL OR "{col_names[14]}" = '' THEN NULL
-                            WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\.?[0-9]*$' THEN
+                            WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN
                                 CASE
                                     WHEN CAST("{col_names[14]}" AS FLOAT) BETWEEN 1800 AND 2200 THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER)
                                     ELSE NULL
@@ -2459,14 +2459,14 @@ def api_search():
                 if build_year_min:
                     query += f''' AND CASE
                         WHEN "{col_names[14]}" IS NULL OR "{col_names[14]}" = '' THEN FALSE
-                        WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\.?[0-9]*$' THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER) >= %s
+                        WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER) >= %s
                         ELSE FALSE
                     END'''
                     params.append(build_year_min)
                 if build_year_max:
                     query += f''' AND CASE
                         WHEN "{col_names[14]}" IS NULL OR "{col_names[14]}" = '' THEN FALSE
-                        WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\.?[0-9]*$' THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER) <= %s
+                        WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER) <= %s
                         ELSE FALSE
                     END'''
                     params.append(build_year_max)
@@ -2666,7 +2666,7 @@ def get_building_transactions():
                     COALESCE(NULLIF("{col_names[11]}", ''), '') as 계약일,
                     CASE
                         WHEN "{col_names[14]}" IS NULL OR "{col_names[14]}" = '' THEN NULL
-                        WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\.?[0-9]*$' THEN
+                        WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN
                             CASE
                                 WHEN CAST("{col_names[14]}" AS FLOAT) BETWEEN 1800 AND 2200 THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER)
                                 ELSE NULL
@@ -2860,12 +2860,28 @@ def get_building_transactions():
 
             cursor_apt.close()
 
-        # 호실 정보는 "호실 확인" 버튼 클릭 시에만 조회 (성능 최적화)
-        # 건물 모달 초기 로딩에서는 호실 정보를 조회하지 않음
-        for row in results:
-            row['동호명'] = None  # 초기값
-            row['동호명_전체목록'] = []
-            row['동호명_더보기'] = False
+        # 호실 정보 조회 (인덱스 최적화로 빠른 조회 가능)
+        if property_type in ['아파트', '연립다세대', '오피스텔']:
+            conn_unit = psycopg.connect(**DB_CONFIG, row_factory=dict_row)
+            cursor_unit = conn_unit.cursor()
+
+            for row in results:
+                unit_info = fetch_unit_info_for_row(
+                    cursor_unit, sigungu_code, umd_name,
+                    row.get('지번'), row.get('층'), row.get('면적')
+                )
+                row['동호명'] = unit_info['unit']
+                row['동호명_전체목록'] = unit_info['all_units']
+                row['동호명_더보기'] = unit_info['has_more']
+
+            cursor_unit.close()
+            conn_unit.close()
+        else:
+            # 단독다가구는 호실 정보 없음
+            for row in results:
+                row['동호명'] = '-'
+                row['동호명_전체목록'] = []
+                row['동호명_더보기'] = False
 
         # LH 정보 추가를 위해 필요한 키 추가
         print(f"[DEBUG 모달] LH 정보 추가 시작 - results 개수: {len(results)}, property_type: {property_type}", flush=True)
