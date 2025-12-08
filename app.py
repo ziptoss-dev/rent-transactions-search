@@ -166,7 +166,7 @@ def add_lh_info_to_results(results, cursor):
                         room_count,
                         jeonse_support_amount
                     FROM lh_rent_transactions
-                    WHERE (housing_type IN ('{house_types_str}') OR housing_type IS NULL)
+                    WHERE (house_subtype IN ('{house_types_str}') OR house_subtype IS NULL)
                         AND ({' OR '.join(conditions)})
                 """
                 cursor.execute(lh_query, params)
@@ -215,7 +215,7 @@ def add_lh_info_to_results(results, cursor):
                         room_count,
                         jeonse_support_amount
                     FROM lh_rent_transactions
-                    WHERE (housing_type IN ('{house_types_str}') OR housing_type IS NULL)
+                    WHERE (house_subtype IN ('{house_types_str}') OR house_subtype IS NULL)
                         AND ({' OR '.join(conditions)})
                 """
                 print(f"[DEBUG LH] LH 쿼리 실행 중... house_types: {house_types_str}", flush=True)
@@ -1978,7 +1978,7 @@ def api_search():
                         AND lh.dealmonth::text = a.dealmonth::text
                         AND lh.dealday::text = a.dealday::text
                         AND ROUND(lh.jeonse_amount) = (CAST(REPLACE(REPLACE(a.deposit, ',', ''), ' ', '') AS INTEGER) * 10000)
-                    WHERE (lh.housing_type IN ('{housing_types_str}') OR lh.housing_type IS NULL)
+                    WHERE (lh.house_subtype IN ('{housing_types_str}') OR lh.house_subtype IS NULL)
                 """
             else:
                 query = """
@@ -2172,7 +2172,7 @@ def api_search():
                         AND lh.dealmonth::text = v.dealmonth::text
                         AND lh.dealday::text = v.dealday::text
                         AND ROUND(lh.jeonse_amount) = (CAST(REPLACE(REPLACE(v.deposit, ',', ''), ' ', '') AS INTEGER) * 10000)
-                    WHERE (lh.housing_type IN ('{housing_types_str}') OR lh.housing_type IS NULL)
+                    WHERE (lh.house_subtype IN ('{housing_types_str}') OR lh.house_subtype IS NULL)
                 """
             else:
                 query = """
@@ -2352,7 +2352,7 @@ def api_search():
                         AND lh.dealmonth::text = o.dealmonth::text
                         AND lh.dealday::text = o.dealday::text
                         AND ROUND(lh.jeonse_amount) = (CAST(REPLACE(REPLACE(o.deposit, ',', ''), ' ', '') AS INTEGER) * 10000)
-                    WHERE (lh.housing_type IN ('{housing_types_str}') OR lh.housing_type IS NULL)
+                    WHERE (lh.house_subtype IN ('{housing_types_str}') OR lh.house_subtype IS NULL)
                 """
             else:
                 query = """
@@ -2553,7 +2553,7 @@ def api_search():
                             AND lh.dealmonth::text = SPLIT_PART(d."{col_names[10]}", '.', 2)
                             AND lh.dealday::text = d."{col_names[11]}"
                             AND ROUND(lh.jeonse_amount) = (CAST(REPLACE(REPLACE(d."{col_names[12]}", ',', ''), ' ', '') AS INTEGER) * 10000)
-                        WHERE (lh.housing_type IN ('{housing_types_str}') OR lh.housing_type IS NULL)
+                        WHERE (lh.house_subtype IN ('{housing_types_str}') OR lh.house_subtype IS NULL)
                     """
                 else:
                     query = f"""
