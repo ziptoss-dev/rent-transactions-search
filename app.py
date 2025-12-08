@@ -164,7 +164,8 @@ def add_lh_info_to_results(results, cursor):
                         dealday::text as day,
                         ROUND(jeonse_amount) as deposit,
                         room_count,
-                        jeonse_support_amount
+                        jeonse_support_amount,
+                        housing_type
                     FROM lh_rent_transactions
                     WHERE (house_subtype IN ('{house_types_str}') OR house_subtype IS NULL)
                         AND ({' OR '.join(conditions)})
@@ -190,6 +191,7 @@ def add_lh_info_to_results(results, cursor):
                     if lh_data:
                         results[item['idx']]['lh_room_count'] = lh_data['room_count']
                         results[item['idx']]['lh_support_amount'] = lh_data['jeonse_support_amount']
+                        results[item['idx']]['lh_housing_type'] = lh_data.get('housing_type', '')
                         results[item['idx']]['is_lh'] = True
                     else:
                         results[item['idx']]['is_lh'] = False
@@ -213,7 +215,8 @@ def add_lh_info_to_results(results, cursor):
                         dealday::text as day,
                         ROUND(jeonse_amount) as deposit,
                         room_count,
-                        jeonse_support_amount
+                        jeonse_support_amount,
+                        housing_type
                     FROM lh_rent_transactions
                     WHERE (house_subtype IN ('{house_types_str}') OR house_subtype IS NULL)
                         AND ({' OR '.join(conditions)})
@@ -245,6 +248,7 @@ def add_lh_info_to_results(results, cursor):
                     if lh_data:
                         results[item['idx']]['lh_room_count'] = lh_data['room_count']
                         results[item['idx']]['lh_support_amount'] = lh_data['jeonse_support_amount']
+                        results[item['idx']]['lh_housing_type'] = lh_data.get('housing_type', '')
                         results[item['idx']]['is_lh'] = True
                         matched_count += 1
                         print(f"[DEBUG LH] 매칭 성공 idx={item['idx']}, key={key}", flush=True)
@@ -1969,6 +1973,7 @@ def api_search():
                         a.userrright as 갱신요구권사용,
                         lh.room_count as lh_room_count,
                         lh.jeonse_support_amount as lh_support_amount,
+                        lh.housing_type as lh_housing_type,
                         true as is_lh
                     FROM apt_rent_transactions a
                     INNER JOIN lh_rent_transactions lh ON
@@ -2163,6 +2168,7 @@ def api_search():
                         v.userrright as 갱신요구권사용,
                         lh.room_count as lh_room_count,
                         lh.jeonse_support_amount as lh_support_amount,
+                        lh.housing_type as lh_housing_type,
                         true as is_lh
                     FROM villa_rent_transactions v
                     INNER JOIN lh_rent_transactions lh ON
@@ -2343,6 +2349,7 @@ def api_search():
                         o.userrright as 갱신요구권사용,
                         lh.room_count as lh_room_count,
                         lh.jeonse_support_amount as lh_support_amount,
+                        lh.housing_type as lh_housing_type,
                         true as is_lh
                     FROM officetel_rent_transactions o
                     INNER JOIN lh_rent_transactions lh ON
@@ -2544,6 +2551,7 @@ def api_search():
                             d."{col_names[18]}" as 갱신요구권사용,
                             lh.room_count as lh_room_count,
                             lh.jeonse_support_amount as lh_support_amount,
+                            lh.housing_type as lh_housing_type,
                             true as is_lh
                         FROM dagagu_rent_transactions d
                         INNER JOIN lh_rent_transactions lh ON
