@@ -731,7 +731,7 @@ function displayResults(data, append = false) {
             }
 
             const lhData = row.is_lh ? {
-                support_type: row.lh_support_type,
+                support_type: row.lh_housing_type,
                 room_count: row.lh_room_count,
                 support_amount: row.lh_support_amount
             } : null;
@@ -784,7 +784,7 @@ function displayResults(data, append = false) {
 
                 // LH 데이터 구성
                 const lhData = row.is_lh ? {
-                    support_type: row.lh_support_type,
+                    support_type: row.lh_housing_type,
                     room_count: row.lh_room_count,
                     support_amount: row.lh_support_amount
                 } : null;
@@ -1255,7 +1255,7 @@ function displayBuildingTransactions(data, propertyType, append = false) {
 
         // LH 데이터 구성
         const lhData = row.is_lh ? {
-            support_type: row.lh_support_type,
+            support_type: row.lh_housing_type,
             room_count: row.lh_room_count,
             support_amount: row.lh_support_amount
         } : null;
@@ -1330,7 +1330,7 @@ function reRenderModalTable() {
 
         // LH 데이터 구성
         const lhData = row.is_lh ? {
-            support_type: row.lh_support_type,
+            support_type: row.lh_housing_type,
             room_count: row.lh_room_count,
             support_amount: row.lh_support_amount
         } : null;
