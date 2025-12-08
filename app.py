@@ -2049,38 +2049,36 @@ def api_search():
                     row['시군구'] = ''
 
             # 공동주택가격 일괄 조회 (N+1 쿼리 문제 해결)
-            # LH 필터 시에는 스킵 (성능 최적화 - LH 매칭에는 공시가격 불필요)
-            if not lh_only:
-                # 시군구별로 그룹화하여 일괄 조회
-                from collections import defaultdict
-                sgg_groups = defaultdict(lambda: defaultdict(list))
-                for row in results:
-                    sgg_code = row.get('시군구코드')
-                    umd_name = row.get('읍면동리')
-                    if sgg_code and umd_name:
-                        sgg_groups[sgg_code][umd_name].append(row)
+            # 시군구별로 그룹화하여 일괄 조회
+            from collections import defaultdict
+            sgg_groups = defaultdict(lambda: defaultdict(list))
+            for row in results:
+                sgg_code = row.get('시군구코드')
+                umd_name = row.get('읍면동리')
+                if sgg_code and umd_name:
+                    sgg_groups[sgg_code][umd_name].append(row)
 
-                # 각 그룹별로 일괄 조회
-                for sgg_code, umd_dict in sgg_groups.items():
-                    for umd_name, rows in umd_dict.items():
-                        price_map = fetch_apartment_prices_batch(cursor, sgg_code, umd_name, rows)
+            # 각 그룹별로 일괄 조회
+            for sgg_code, umd_dict in sgg_groups.items():
+                for umd_name, rows in umd_dict.items():
+                    price_map = fetch_apartment_prices_batch(cursor, sgg_code, umd_name, rows)
 
-                        # 결과 매핑
-                        for row in rows:
-                            jibun = row.get('지번')
-                            floor = row.get('층')
-                            area = row.get('면적')
+                    # 결과 매핑
+                    for row in rows:
+                        jibun = row.get('지번')
+                        floor = row.get('층')
+                        area = row.get('면적')
 
-                            if jibun and floor is not None and area:
-                                try:
-                                    # 면적을 2자리로 반올림하여 키 생성 (batch 함수와 동일하게)
-                                    area_rounded = round(float(area), 2)
-                                    key = (jibun, int(floor), area_rounded)
-                                    if key in price_map:
-                                        row['공동주택가격'] = price_map[key]['price']
-                                        row['공동주택가격_126퍼센트'] = price_map[key]['threshold_126']
-                                except:
-                                    pass
+                        if jibun and floor is not None and area:
+                            try:
+                                # 면적을 2자리로 반올림하여 키 생성 (batch 함수와 동일하게)
+                                area_rounded = round(float(area), 2)
+                                key = (jibun, int(floor), area_rounded)
+                                if key in price_map:
+                                    row['공동주택가격'] = price_map[key]['price']
+                                    row['공동주택가격_126퍼센트'] = price_map[key]['threshold_126']
+                            except:
+                                pass
 
             # 호실 정보 조회 (메인 검색에서는 생략 - 성능 최적화)
             # 호실 정보는 사용자가 "호실 확인" 버튼을 클릭할 때만 조회
@@ -2192,37 +2190,35 @@ def api_search():
                     row['시군구'] = ''
 
             # 공동주택가격 일괄 조회 (N+1 쿼리 문제 해결)
-            # LH 필터 시에는 스킵 (성능 최적화 - LH 매칭에는 공시가격 불필요)
-            if not lh_only:
-                from collections import defaultdict
-                sgg_groups = defaultdict(lambda: defaultdict(list))
-                for row in results:
-                    sgg_code = row.get('시군구코드')
-                    umd_name = row.get('읍면동리')
-                    if sgg_code and umd_name:
-                        sgg_groups[sgg_code][umd_name].append(row)
+            from collections import defaultdict
+            sgg_groups = defaultdict(lambda: defaultdict(list))
+            for row in results:
+                sgg_code = row.get('시군구코드')
+                umd_name = row.get('읍면동리')
+                if sgg_code and umd_name:
+                    sgg_groups[sgg_code][umd_name].append(row)
 
-                # 각 그룹별로 일괄 조회
-                for sgg_code, umd_dict in sgg_groups.items():
-                    for umd_name, rows in umd_dict.items():
-                        price_map = fetch_apartment_prices_batch(cursor, sgg_code, umd_name, rows)
+            # 각 그룹별로 일괄 조회
+            for sgg_code, umd_dict in sgg_groups.items():
+                for umd_name, rows in umd_dict.items():
+                    price_map = fetch_apartment_prices_batch(cursor, sgg_code, umd_name, rows)
 
-                        # 결과 매핑
-                        for row in rows:
-                            jibun = row.get('지번')
-                            floor = row.get('층')
-                            area = row.get('면적')
+                    # 결과 매핑
+                    for row in rows:
+                        jibun = row.get('지번')
+                        floor = row.get('층')
+                        area = row.get('면적')
 
-                            if jibun and floor is not None and area:
-                                try:
-                                    # 면적을 2자리로 반올림하여 키 생성 (batch 함수와 동일하게)
-                                    area_rounded = round(float(area), 2)
-                                    key = (jibun, int(floor), area_rounded)
-                                    if key in price_map:
-                                        row['공동주택가격'] = price_map[key]['price']
-                                        row['공동주택가격_126퍼센트'] = price_map[key]['threshold_126']
-                                except:
-                                    pass
+                        if jibun and floor is not None and area:
+                            try:
+                                # 면적을 2자리로 반올림하여 키 생성 (batch 함수와 동일하게)
+                                area_rounded = round(float(area), 2)
+                                key = (jibun, int(floor), area_rounded)
+                                if key in price_map:
+                                    row['공동주택가격'] = price_map[key]['price']
+                                    row['공동주택가격_126퍼센트'] = price_map[key]['threshold_126']
+                            except:
+                                pass
 
             # 호실 정보 조회 (메인 검색에서는 생략 - 성능 최적화)
             # 호실 정보는 사용자가 "호실 확인" 버튼을 클릭할 때만 조회
@@ -2332,41 +2328,39 @@ def api_search():
                     row['시군구'] = ''
 
             # 오피스텔 기준시가 일괄 조회
-            # LH 필터 시에는 스킵 (성능 최적화 - LH 매칭에는 기준시가 불필요)
-            if not lh_only:
-                # 시군구별로 그룹화
-                from collections import defaultdict
-                sgg_groups_off = defaultdict(list)
-                for row in results:
-                    sgg_code = row.get('시군구코드')
-                    if sgg_code:
-                        sgg_groups_off[sgg_code].append(row)
+            # 시군구별로 그룹화
+            from collections import defaultdict
+            sgg_groups_off = defaultdict(list)
+            for row in results:
+                sgg_code = row.get('시군구코드')
+                if sgg_code:
+                    sgg_groups_off[sgg_code].append(row)
 
-                # 각 시군구별로 일괄 조회
-                for sgg_code, rows in sgg_groups_off.items():
-                    price_map = fetch_officetel_standard_prices_batch(cursor, sgg_code, rows)
+            # 각 시군구별로 일괄 조회
+            for sgg_code, rows in sgg_groups_off.items():
+                price_map = fetch_officetel_standard_prices_batch(cursor, sgg_code, rows)
 
-                    # 결과 매핑
-                    for row in rows:
-                        jibun = row.get('지번')
-                        floor = row.get('층')
-                        area = row.get('면적')
+                # 결과 매핑
+                for row in rows:
+                    jibun = row.get('지번')
+                    floor = row.get('층')
+                    area = row.get('면적')
 
-                        if jibun and floor is not None and area:
-                            try:
-                                # 면적을 2자리로 반올림하여 키 생성
-                                area_rounded = round(float(area), 2)
-                                key = (jibun, int(floor), area_rounded)
-                                if key in price_map:
-                                    data = price_map[key]
-                                    row['기준시가_면적당가격'] = data['unit_price']
-                                    row['기준시가_전용면적'] = data['exclusive_area']
-                                    row['기준시가_공유면적'] = data['shared_area']
-                                    row['기준시가_면적계'] = data['total_area']
-                                    row['기준시가_총액'] = data['standard_price']
-                                    row['기준시가_126퍼센트'] = data['threshold_126']
-                            except:
-                                pass
+                    if jibun and floor is not None and area:
+                        try:
+                            # 면적을 2자리로 반올림하여 키 생성
+                            area_rounded = round(float(area), 2)
+                            key = (jibun, int(floor), area_rounded)
+                            if key in price_map:
+                                data = price_map[key]
+                                row['기준시가_면적당가격'] = data['unit_price']
+                                row['기준시가_전용면적'] = data['exclusive_area']
+                                row['기준시가_공유면적'] = data['shared_area']
+                                row['기준시가_면적계'] = data['total_area']
+                                row['기준시가_총액'] = data['standard_price']
+                                row['기준시가_126퍼센트'] = data['threshold_126']
+                        except:
+                            pass
 
             # 호실 정보 조회 (메인 검색에서는 생략 - 성능 최적화)
             # 호실 정보는 사용자가 "호실 확인" 버튼을 클릭할 때만 조회
