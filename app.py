@@ -1940,83 +1940,126 @@ def api_search():
             print(f"[DEBUG] 계약만기시기: {contract_end}")
             print(f"[DEBUG] 시군구 코드: {sgg_codes}")
             print(f"[DEBUG] 읍면동: {umd_names}")
+            print(f"[DEBUG] LH 필터: {lh_only}")
 
-            query = """
-                SELECT
-                    '아파트' as 구분,
-                    sggcd as 시군구코드,
-                    umdnm as 읍면동리,
-                    jibun as 지번,
-                    aptnm as 단지명,
-                    excluusear as 면적,
-                    dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
-                    dealday as 계약일,
-                    deposit as 보증금,
-                    monthlyrent as 월세,
-                    floor as 층,
-                    buildyear as 건축년도,
-                    contracttype as 계약구분,
-                    contractterm as 계약기간,
-                    predeposit as 종전계약보증금,
-                    premonthlyrent as 종전계약월세,
-                    userrright as 갱신요구권사용
-                FROM apt_rent_transactions
-                WHERE 1=1
-            """
+            # LH 필터 활성화 시 JOIN 쿼리 사용
+            if lh_only:
+                OTHER_TYPES = ['기숙사및특수사회시설', '기타', '비거주용건물내주택', '점포주택등복합용도주택']
+                apt_housing_types = ['아파트'] + OTHER_TYPES
+                housing_types_str = "', '".join(apt_housing_types)
+
+                query = f"""
+                    SELECT
+                        '아파트' as 구분,
+                        a.sggcd as 시군구코드,
+                        a.umdnm as 읍면동리,
+                        a.jibun as 지번,
+                        a.aptnm as 단지명,
+                        a.excluusear as 면적,
+                        a.dealyear || LPAD(a.dealmonth::text, 2, '0') as 계약년월,
+                        a.dealday as 계약일,
+                        a.deposit as 보증금,
+                        a.monthlyrent as 월세,
+                        a.floor as 층,
+                        a.buildyear as 건축년도,
+                        a.contracttype as 계약구분,
+                        a.contractterm as 계약기간,
+                        a.predeposit as 종전계약보증금,
+                        a.premonthlyrent as 종전계약월세,
+                        a.userrright as 갱신요구권사용,
+                        lh.room_count as lh_room_count,
+                        lh.jeonse_support_amount as lh_support_amount,
+                        true as is_lh
+                    FROM apt_rent_transactions a
+                    INNER JOIN lh_rent_transactions lh ON
+                        lh.sggcd = a.sggcd
+                        AND lh.exclusive_area::numeric = a.excluusear::numeric
+                        AND lh.dealyear::text = a.dealyear::text
+                        AND lh.dealmonth::text = a.dealmonth::text
+                        AND lh.dealday::text = a.dealday::text
+                        AND ROUND(lh.jeonse_amount) = (CAST(REPLACE(REPLACE(a.deposit, ',', ''), ' ', '') AS INTEGER) * 10000)
+                    WHERE (lh.housing_type IN ('{housing_types_str}') OR lh.housing_type IS NULL)
+                """
+            else:
+                query = """
+                    SELECT
+                        '아파트' as 구분,
+                        sggcd as 시군구코드,
+                        umdnm as 읍면동리,
+                        jibun as 지번,
+                        aptnm as 단지명,
+                        excluusear as 면적,
+                        dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
+                        dealday as 계약일,
+                        deposit as 보증금,
+                        monthlyrent as 월세,
+                        floor as 층,
+                        buildyear as 건축년도,
+                        contracttype as 계약구분,
+                        contractterm as 계약기간,
+                        predeposit as 종전계약보증금,
+                        premonthlyrent as 종전계약월세,
+                        userrright as 갱신요구권사용
+                    FROM apt_rent_transactions
+                    WHERE 1=1
+                """
             params = []
+
+            # LH 필터일 때는 테이블 alias 사용
+            table_prefix = "a." if lh_only else ""
 
             # 1. 지역 필터를 먼저 적용 (인덱스 활용, 성능 최적화)
             if sgg_codes:
                 placeholders = ','.join(['%s'] * len(sgg_codes))
-                query += f" AND sggcd IN ({placeholders})"
+                query += f" AND {table_prefix}sggcd IN ({placeholders})"
                 params.extend(sgg_codes)
 
             # 2. 읍면동 필터 추가
             if umd_names and len(umd_names) > 0:
                 placeholders = ','.join(['%s'] * len(umd_names))
-                query += f" AND umdnm IN ({placeholders})"
+                query += f" AND {table_prefix}umdnm IN ({placeholders})"
                 params.extend(umd_names)
 
             # 3. 계약만기시기 필터 (SPLIT_PART 사용)
             if contract_end:
                 if len(contract_end) == 6:  # YYYYMM 형식
                     short_format = contract_end[2:4] + '.' + contract_end[4:6]  # 202512 -> 25.12
-                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    query += f" AND SPLIT_PART({table_prefix}contractterm, '~', 2) = %s"
                     params.append(short_format)
                 else:
-                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    query += f" AND SPLIT_PART({table_prefix}contractterm, '~', 2) = %s"
                     params.append(contract_end)
 
             # 4. 면적 필터
             if area_min:
-                query += " AND CAST(excluusear AS FLOAT) >= %s"
+                query += f" AND CAST({table_prefix}excluusear AS FLOAT) >= %s"
                 params.append(area_min)
             if area_max:
-                query += " AND CAST(excluusear AS FLOAT) <= %s"
+                query += f" AND CAST({table_prefix}excluusear AS FLOAT) <= %s"
                 params.append(area_max)
 
             # 5. 보증금 필터
             if deposit_min:
-                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) >= %s"
+                query += f" AND CAST(REPLACE({table_prefix}deposit, ',', '') AS INTEGER) >= %s"
                 params.append(deposit_min)
             if deposit_max:
-                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) <= %s"
+                query += f" AND CAST(REPLACE({table_prefix}deposit, ',', '') AS INTEGER) <= %s"
                 params.append(deposit_max)
 
             # 6. 월세 필터
             if rent_min:
-                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) >= %s"
+                query += f" AND CAST(REPLACE({table_prefix}monthlyrent, ',', '') AS INTEGER) >= %s"
                 params.append(rent_min)
             if rent_max:
-                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) <= %s"
+                query += f" AND CAST(REPLACE({table_prefix}monthlyrent, ',', '') AS INTEGER) <= %s"
                 params.append(rent_max)
 
             # 7. 건축년도 필터
             if build_year_min:
-                query += " AND CAST(buildyear AS INTEGER) >= %s"
+                query += f" AND CAST({table_prefix}buildyear AS INTEGER) >= %s"
                 params.append(build_year_min)
             if build_year_max:
-                query += " AND CAST(buildyear AS INTEGER) <= %s"
+                query += f" AND CAST({table_prefix}buildyear AS INTEGER) <= %s"
                 params.append(build_year_max)
 
             query += " ORDER BY 계약년월 DESC, 계약일 DESC"
@@ -2093,78 +2136,120 @@ def api_search():
 
         # 연립다세대 조회
         if include_villa:
-            query = """
-                SELECT
-                    '연립다세대' as 구분,
-                    sggcd as 시군구코드,
-                    umdnm as 읍면동리,
-                    jibun as 지번,
-                    mhousenm as 단지명,
-                    excluusear as 면적,
-                    dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
-                    dealday as 계약일,
-                    deposit as 보증금,
-                    monthlyrent as 월세,
-                    floor as 층,
-                    buildyear as 건축년도,
-                    contracttype as 계약구분,
-                    contractterm as 계약기간,
-                    predeposit as 종전계약보증금,
-                    premonthlyrent as 종전계약월세,
-                    userrright as 갱신요구권사용
-                FROM villa_rent_transactions
-                WHERE 1=1
-            """
+            # LH 필터 활성화 시 JOIN 쿼리 사용
+            if lh_only:
+                OTHER_TYPES = ['기숙사및특수사회시설', '기타', '비거주용건물내주택', '점포주택등복합용도주택']
+                villa_housing_types = ['연립주택', '다세대주택', '도시형생활주택'] + OTHER_TYPES
+                housing_types_str = "', '".join(villa_housing_types)
+
+                query = f"""
+                    SELECT
+                        '연립다세대' as 구분,
+                        v.sggcd as 시군구코드,
+                        v.umdnm as 읍면동리,
+                        v.jibun as 지번,
+                        v.mhousenm as 단지명,
+                        v.excluusear as 면적,
+                        v.dealyear || LPAD(v.dealmonth::text, 2, '0') as 계약년월,
+                        v.dealday as 계약일,
+                        v.deposit as 보증금,
+                        v.monthlyrent as 월세,
+                        v.floor as 층,
+                        v.buildyear as 건축년도,
+                        v.contracttype as 계약구분,
+                        v.contractterm as 계약기간,
+                        v.predeposit as 종전계약보증금,
+                        v.premonthlyrent as 종전계약월세,
+                        v.userrright as 갱신요구권사용,
+                        lh.room_count as lh_room_count,
+                        lh.jeonse_support_amount as lh_support_amount,
+                        true as is_lh
+                    FROM villa_rent_transactions v
+                    INNER JOIN lh_rent_transactions lh ON
+                        lh.sggcd = v.sggcd
+                        AND lh.exclusive_area::numeric = v.excluusear::numeric
+                        AND lh.dealyear::text = v.dealyear::text
+                        AND lh.dealmonth::text = v.dealmonth::text
+                        AND lh.dealday::text = v.dealday::text
+                        AND ROUND(lh.jeonse_amount) = (CAST(REPLACE(REPLACE(v.deposit, ',', ''), ' ', '') AS INTEGER) * 10000)
+                    WHERE (lh.housing_type IN ('{housing_types_str}') OR lh.housing_type IS NULL)
+                """
+            else:
+                query = """
+                    SELECT
+                        '연립다세대' as 구분,
+                        sggcd as 시군구코드,
+                        umdnm as 읍면동리,
+                        jibun as 지번,
+                        mhousenm as 단지명,
+                        excluusear as 면적,
+                        dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
+                        dealday as 계약일,
+                        deposit as 보증금,
+                        monthlyrent as 월세,
+                        floor as 층,
+                        buildyear as 건축년도,
+                        contracttype as 계약구분,
+                        contractterm as 계약기간,
+                        predeposit as 종전계약보증금,
+                        premonthlyrent as 종전계약월세,
+                        userrright as 갱신요구권사용
+                    FROM villa_rent_transactions
+                    WHERE 1=1
+                """
             params = []
+
+            # LH 필터일 때는 테이블 alias 사용
+            table_prefix = "v." if lh_only else ""
 
             # 1. 지역 필터를 먼저 적용 (인덱스 활용)
             if sgg_codes:
                 placeholders = ','.join(['%s'] * len(sgg_codes))
-                query += f" AND sggcd IN ({placeholders})"
+                query += f" AND {table_prefix}sggcd IN ({placeholders})"
                 params.extend(sgg_codes)
 
             # 2. 읍면동 필터 추가
             if umd_names and len(umd_names) > 0:
                 placeholders = ','.join(['%s'] * len(umd_names))
-                query += f" AND umdnm IN ({placeholders})"
+                query += f" AND {table_prefix}umdnm IN ({placeholders})"
                 params.extend(umd_names)
 
             # 3. 계약만기시기 필터
             if contract_end:
                 if len(contract_end) == 6:  # YYYYMM 형식
                     short_format = contract_end[2:4] + '.' + contract_end[4:6]  # 202508 -> 25.08
-                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    query += f" AND SPLIT_PART({table_prefix}contractterm, '~', 2) = %s"
                     params.append(short_format)
                 else:
-                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    query += f" AND SPLIT_PART({table_prefix}contractterm, '~', 2) = %s"
                     params.append(contract_end)
 
             if area_min:
-                query += " AND CAST(excluusear AS FLOAT) >= %s"
+                query += f" AND CAST({table_prefix}excluusear AS FLOAT) >= %s"
                 params.append(area_min)
             if area_max:
-                query += " AND CAST(excluusear AS FLOAT) <= %s"
+                query += f" AND CAST({table_prefix}excluusear AS FLOAT) <= %s"
                 params.append(area_max)
 
             if deposit_min:
-                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) >= %s"
+                query += f" AND CAST(REPLACE({table_prefix}deposit, ',', '') AS INTEGER) >= %s"
                 params.append(deposit_min)
             if deposit_max:
-                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) <= %s"
+                query += f" AND CAST(REPLACE({table_prefix}deposit, ',', '') AS INTEGER) <= %s"
                 params.append(deposit_max)
 
             if rent_min:
-                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) >= %s"
+                query += f" AND CAST(REPLACE({table_prefix}monthlyrent, ',', '') AS INTEGER) >= %s"
                 params.append(rent_min)
             if rent_max:
-                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) <= %s"
+                query += f" AND CAST(REPLACE({table_prefix}monthlyrent, ',', '') AS INTEGER) <= %s"
                 params.append(rent_max)
 
             if build_year_min:
-                query += " AND CAST(buildyear AS INTEGER) >= %s"
+                query += f" AND CAST({table_prefix}buildyear AS INTEGER) >= %s"
                 params.append(build_year_min)
             if build_year_max:
-                query += " AND CAST(buildyear AS INTEGER) <= %s"
+                query += f" AND CAST({table_prefix}buildyear AS INTEGER) <= %s"
                 params.append(build_year_max)
 
             query += " ORDER BY 계약년월 DESC, 계약일 DESC"
@@ -2231,81 +2316,123 @@ def api_search():
 
         # 오피스텔 조회
         if include_officetel:
-            query = """
-                SELECT
-                    '오피스텔' as 구분,
-                    sggcd as 시군구코드,
-                    umdnm as 읍면동리,
-                    jibun as 지번,
-                    offinm as 단지명,
-                    excluusear as 면적,
-                    dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
-                    dealday as 계약일,
-                    deposit as 보증금,
-                    monthlyrent as 월세,
-                    floor as 층,
-                    buildyear as 건축년도,
-                    contracttype as 계약구분,
-                    contractterm as 계약기간,
-                    predeposit as 종전계약보증금,
-                    premonthlyrent as 종전계약월세,
-                    userrright as 갱신요구권사용
-                FROM officetel_rent_transactions
-                WHERE 1=1
-            """
+            # LH 필터 활성화 시 JOIN 쿼리 사용
+            if lh_only:
+                OTHER_TYPES = ['기숙사및특수사회시설', '기타', '비거주용건물내주택', '점포주택등복합용도주택']
+                officetel_housing_types = ['오피스텔'] + OTHER_TYPES
+                housing_types_str = "', '".join(officetel_housing_types)
+
+                query = f"""
+                    SELECT
+                        '오피스텔' as 구분,
+                        o.sggcd as 시군구코드,
+                        o.umdnm as 읍면동리,
+                        o.jibun as 지번,
+                        o.offinm as 단지명,
+                        o.excluusear as 면적,
+                        o.dealyear || LPAD(o.dealmonth::text, 2, '0') as 계약년월,
+                        o.dealday as 계약일,
+                        o.deposit as 보증금,
+                        o.monthlyrent as 월세,
+                        o.floor as 층,
+                        o.buildyear as 건축년도,
+                        o.contracttype as 계약구분,
+                        o.contractterm as 계약기간,
+                        o.predeposit as 종전계약보증금,
+                        o.premonthlyrent as 종전계약월세,
+                        o.userrright as 갱신요구권사용,
+                        lh.room_count as lh_room_count,
+                        lh.jeonse_support_amount as lh_support_amount,
+                        true as is_lh
+                    FROM officetel_rent_transactions o
+                    INNER JOIN lh_rent_transactions lh ON
+                        lh.sggcd = o.sggcd
+                        AND lh.exclusive_area::numeric = o.excluusear::numeric
+                        AND lh.dealyear::text = o.dealyear::text
+                        AND lh.dealmonth::text = o.dealmonth::text
+                        AND lh.dealday::text = o.dealday::text
+                        AND ROUND(lh.jeonse_amount) = (CAST(REPLACE(REPLACE(o.deposit, ',', ''), ' ', '') AS INTEGER) * 10000)
+                    WHERE (lh.housing_type IN ('{housing_types_str}') OR lh.housing_type IS NULL)
+                """
+            else:
+                query = """
+                    SELECT
+                        '오피스텔' as 구분,
+                        sggcd as 시군구코드,
+                        umdnm as 읍면동리,
+                        jibun as 지번,
+                        offinm as 단지명,
+                        excluusear as 면적,
+                        dealyear || LPAD(dealmonth::text, 2, '0') as 계약년월,
+                        dealday as 계약일,
+                        deposit as 보증금,
+                        monthlyrent as 월세,
+                        floor as 층,
+                        buildyear as 건축년도,
+                        contracttype as 계약구분,
+                        contractterm as 계약기간,
+                        predeposit as 종전계약보증금,
+                        premonthlyrent as 종전계약월세,
+                        userrright as 갱신요구권사용
+                    FROM officetel_rent_transactions
+                    WHERE 1=1
+                """
             params = []
+
+            # LH 필터일 때는 테이블 alias 사용
+            table_prefix = "o." if lh_only else ""
 
             # 1. 지역 필터를 먼저 적용 (인덱스 활용)
             if sgg_codes:
                 placeholders = ','.join(['%s'] * len(sgg_codes))
-                query += f" AND sggcd IN ({placeholders})"
+                query += f" AND {table_prefix}sggcd IN ({placeholders})"
                 params.extend(sgg_codes)
 
             # 2. 읍면동 필터 추가
             if umd_names and len(umd_names) > 0:
                 placeholders = ','.join(['%s'] * len(umd_names))
-                query += f" AND umdnm IN ({placeholders})"
+                query += f" AND {table_prefix}umdnm IN ({placeholders})"
                 params.extend(umd_names)
 
             # 3. 계약만기시기 필터
             if contract_end:
                 if len(contract_end) == 6:  # YYYYMM 형식
                     short_format = contract_end[2:4] + '.' + contract_end[4:6]  # 202508 -> 25.08
-                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    query += f" AND SPLIT_PART({table_prefix}contractterm, '~', 2) = %s"
                     params.append(short_format)
                 else:
-                    query += " AND SPLIT_PART(contractterm, '~', 2) = %s"
+                    query += f" AND SPLIT_PART({table_prefix}contractterm, '~', 2) = %s"
                     params.append(contract_end)
 
             if area_min:
-                query += " AND CAST(excluusear AS FLOAT) >= %s"
+                query += f" AND CAST({table_prefix}excluusear AS FLOAT) >= %s"
                 params.append(area_min)
             if area_max:
-                query += " AND CAST(excluusear AS FLOAT) <= %s"
+                query += f" AND CAST({table_prefix}excluusear AS FLOAT) <= %s"
                 params.append(area_max)
 
             if deposit_min:
-                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) >= %s"
+                query += f" AND CAST(REPLACE({table_prefix}deposit, ',', '') AS INTEGER) >= %s"
                 params.append(deposit_min)
             if deposit_max:
-                query += " AND CAST(REPLACE(deposit, ',', '') AS INTEGER) <= %s"
+                query += f" AND CAST(REPLACE({table_prefix}deposit, ',', '') AS INTEGER) <= %s"
                 params.append(deposit_max)
 
             if rent_min:
-                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) >= %s"
+                query += f" AND CAST(REPLACE({table_prefix}monthlyrent, ',', '') AS INTEGER) >= %s"
                 params.append(rent_min)
             if rent_max:
-                query += " AND CAST(REPLACE(monthlyrent, ',', '') AS INTEGER) <= %s"
+                query += f" AND CAST(REPLACE({table_prefix}monthlyrent, ',', '') AS INTEGER) <= %s"
                 params.append(rent_max)
 
             if build_year_min:
-                query += " AND CAST(buildyear AS INTEGER) >= %s"
+                query += f" AND CAST({table_prefix}buildyear AS INTEGER) >= %s"
                 params.append(build_year_min)
             if build_year_max:
-                query += " AND CAST(buildyear AS INTEGER) <= %s"
+                query += f" AND CAST({table_prefix}buildyear AS INTEGER) <= %s"
                 params.append(build_year_max)
 
-            query += " ORDER BY dealyear DESC, dealmonth DESC, dealday DESC"
+            query += " ORDER BY 계약년월 DESC, 계약일 DESC"
 
             # LH 필터 시에는 페이지네이션 하지 않고 모든 데이터 조회
             if use_sql_pagination:
@@ -2381,92 +2508,143 @@ def api_search():
                 # 컬럼명 매핑 (실제 테이블 구조에 맞춘 올바른 인덱스)
                 # 8:전용면적, 10:계약년, 11:계약일, 12:보증금, 13:월세, 14:건축년도, 15:도로명
                 # 16:계약기간, 17:계약구분, 18:갱신요구권사용, 19:종전계약보증금, 20:종전계약월세, 21:층정보(주택유형)
-                query = f"""
-                    SELECT
-                        '단독다가구' as 구분,
-                        sggcd as 시군구코드,
-                        umdnm as 읍면동리,
-                        jibun as 지번,
-                        "{col_names[15]}" as 단지명,
-                        '-' as 층,
-                        "{col_names[8]}" as 면적,
-                        "{col_names[12]}" as 보증금,
-                        "{col_names[13]}" as 월세,
-                        "{col_names[10]}" as 계약년월,
-                        "{col_names[11]}" as 계약일,
-                        CASE
-                            WHEN "{col_names[14]}" IS NULL OR "{col_names[14]}" = '' THEN NULL
-                            WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN
-                                CASE
-                                    WHEN CAST("{col_names[14]}" AS FLOAT) BETWEEN 1800 AND 2200 THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER)
-                                    ELSE NULL
-                                END
-                            ELSE NULL
-                        END as 건축년도,
-                        "{col_names[17]}" as 계약구분,
-                        "{col_names[16]}" as 계약기간,
-                        "{col_names[19]}" as 종전계약보증금,
-                        "{col_names[20]}" as 종전계약월세,
-                        "{col_names[18]}" as 갱신요구권사용
-                    FROM dagagu_rent_transactions
-                    WHERE 1=1
-                """
+
+                # LH 필터 활성화 시 JOIN 쿼리 사용
+                if lh_only:
+                    OTHER_TYPES = ['기숙사및특수사회시설', '기타', '비거주용건물내주택', '점포주택등복합용도주택']
+                    dagagu_housing_types = ['다가구용단독주택', '다중주택', '단독주택'] + OTHER_TYPES
+                    housing_types_str = "', '".join(dagagu_housing_types)
+
+                    query = f"""
+                        SELECT
+                            '단독다가구' as 구분,
+                            d.sggcd as 시군구코드,
+                            d.umdnm as 읍면동리,
+                            d.jibun as 지번,
+                            d."{col_names[15]}" as 단지명,
+                            '-' as 층,
+                            d."{col_names[8]}" as 면적,
+                            d."{col_names[12]}" as 보증금,
+                            d."{col_names[13]}" as 월세,
+                            d."{col_names[10]}" as 계약년월,
+                            d."{col_names[11]}" as 계약일,
+                            CASE
+                                WHEN d."{col_names[14]}" IS NULL OR d."{col_names[14]}" = '' THEN NULL
+                                WHEN CAST(d."{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN
+                                    CASE
+                                        WHEN CAST(d."{col_names[14]}" AS FLOAT) BETWEEN 1800 AND 2200 THEN CAST(CAST(d."{col_names[14]}" AS FLOAT) AS INTEGER)
+                                        ELSE NULL
+                                    END
+                                ELSE NULL
+                            END as 건축년도,
+                            d."{col_names[17]}" as 계약구분,
+                            d."{col_names[16]}" as 계약기간,
+                            d."{col_names[19]}" as 종전계약보증금,
+                            d."{col_names[20]}" as 종전계약월세,
+                            d."{col_names[18]}" as 갱신요구권사용,
+                            lh.room_count as lh_room_count,
+                            lh.jeonse_support_amount as lh_support_amount,
+                            true as is_lh
+                        FROM dagagu_rent_transactions d
+                        INNER JOIN lh_rent_transactions lh ON
+                            lh.sggcd = d.sggcd
+                            AND lh.exclusive_area::numeric = d."{col_names[8]}"::numeric
+                            AND lh.dealyear::text = SPLIT_PART(d."{col_names[10]}", '.', 1)
+                            AND lh.dealmonth::text = SPLIT_PART(d."{col_names[10]}", '.', 2)
+                            AND lh.dealday::text = d."{col_names[11]}"
+                            AND ROUND(lh.jeonse_amount) = (CAST(REPLACE(REPLACE(d."{col_names[12]}", ',', ''), ' ', '') AS INTEGER) * 10000)
+                        WHERE (lh.housing_type IN ('{housing_types_str}') OR lh.housing_type IS NULL)
+                    """
+                else:
+                    query = f"""
+                        SELECT
+                            '단독다가구' as 구분,
+                            sggcd as 시군구코드,
+                            umdnm as 읍면동리,
+                            jibun as 지번,
+                            "{col_names[15]}" as 단지명,
+                            '-' as 층,
+                            "{col_names[8]}" as 면적,
+                            "{col_names[12]}" as 보증금,
+                            "{col_names[13]}" as 월세,
+                            "{col_names[10]}" as 계약년월,
+                            "{col_names[11]}" as 계약일,
+                            CASE
+                                WHEN "{col_names[14]}" IS NULL OR "{col_names[14]}" = '' THEN NULL
+                                WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN
+                                    CASE
+                                        WHEN CAST("{col_names[14]}" AS FLOAT) BETWEEN 1800 AND 2200 THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER)
+                                        ELSE NULL
+                                    END
+                                ELSE NULL
+                            END as 건축년도,
+                            "{col_names[17]}" as 계약구분,
+                            "{col_names[16]}" as 계약기간,
+                            "{col_names[19]}" as 종전계약보증금,
+                            "{col_names[20]}" as 종전계약월세,
+                            "{col_names[18]}" as 갱신요구권사용
+                        FROM dagagu_rent_transactions
+                        WHERE 1=1
+                    """
                 params = []
+
+                # LH 필터일 때는 테이블 alias 사용
+                table_prefix = "d." if lh_only else ""
 
                 # 1. 지역 필터를 먼저 적용 (인덱스 활용)
                 if sgg_codes:
                     placeholders = ','.join(['%s'] * len(sgg_codes))
-                    query += f" AND sggcd IN ({placeholders})"
+                    query += f" AND {table_prefix}sggcd IN ({placeholders})"
                     params.extend(sgg_codes)
 
                 # 2. 읍면동 필터 추가
                 if umd_names and len(umd_names) > 0:
                     placeholders = ','.join(['%s'] * len(umd_names))
-                    query += f" AND umdnm IN ({placeholders})"
+                    query += f" AND {table_prefix}umdnm IN ({placeholders})"
                     params.extend(umd_names)
 
                 # 3. 계약만기시기 필터 (col_names[16]: 계약기간)
                 if contract_end:
                     if len(contract_end) == 6:  # YYYYMM 형식
                         # 단독다가구는 YYYYMM 형식을 그대로 사용 (202508~202608 형태)
-                        query += f' AND SPLIT_PART("{col_names[16]}", \'~\', 2) = %s'
+                        query += f' AND SPLIT_PART({table_prefix}"{col_names[16]}", \'~\', 2) = %s'
                         params.append(contract_end)  # ~202512로 끝나는 것만
                     else:
-                        query += f' AND SPLIT_PART("{col_names[16]}", \'~\', 2) = %s'
+                        query += f' AND SPLIT_PART({table_prefix}"{col_names[16]}", \'~\', 2) = %s'
                         params.append(contract_end)
 
                 if area_min:
-                    query += f' AND CAST("{col_names[8]}" AS FLOAT) >= %s'
+                    query += f' AND CAST({table_prefix}"{col_names[8]}" AS FLOAT) >= %s'
                     params.append(area_min)
                 if area_max:
-                    query += f' AND CAST("{col_names[8]}" AS FLOAT) <= %s'
+                    query += f' AND CAST({table_prefix}"{col_names[8]}" AS FLOAT) <= %s'
                     params.append(area_max)
 
                 if deposit_min:
-                    query += f' AND CAST(REPLACE("{col_names[12]}", \',\', \'\') AS INTEGER) >= %s'
+                    query += f' AND CAST(REPLACE({table_prefix}"{col_names[12]}", \',\', \'\') AS INTEGER) >= %s'
                     params.append(deposit_min)
                 if deposit_max:
-                    query += f' AND CAST(REPLACE("{col_names[12]}", \',\', \'\') AS INTEGER) <= %s'
+                    query += f' AND CAST(REPLACE({table_prefix}"{col_names[12]}", \',\', \'\') AS INTEGER) <= %s'
                     params.append(deposit_max)
 
                 if rent_min:
-                    query += f' AND CAST(REPLACE("{col_names[13]}", \',\', \'\') AS INTEGER) >= %s'
+                    query += f' AND CAST(REPLACE({table_prefix}"{col_names[13]}", \',\', \'\') AS INTEGER) >= %s'
                     params.append(rent_min)
                 if rent_max:
-                    query += f' AND CAST(REPLACE("{col_names[13]}", \',\', \'\') AS INTEGER) <= %s'
+                    query += f' AND CAST(REPLACE({table_prefix}"{col_names[13]}", \',\', \'\') AS INTEGER) <= %s'
                     params.append(rent_max)
 
                 if build_year_min:
                     query += f''' AND CASE
-                        WHEN "{col_names[14]}" IS NULL OR "{col_names[14]}" = '' THEN FALSE
-                        WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER) >= %s
+                        WHEN {table_prefix}"{col_names[14]}" IS NULL OR {table_prefix}"{col_names[14]}" = '' THEN FALSE
+                        WHEN CAST({table_prefix}"{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN CAST(CAST({table_prefix}"{col_names[14]}" AS FLOAT) AS INTEGER) >= %s
                         ELSE FALSE
                     END'''
                     params.append(build_year_min)
                 if build_year_max:
                     query += f''' AND CASE
-                        WHEN "{col_names[14]}" IS NULL OR "{col_names[14]}" = '' THEN FALSE
-                        WHEN CAST("{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN CAST(CAST("{col_names[14]}" AS FLOAT) AS INTEGER) <= %s
+                        WHEN {table_prefix}"{col_names[14]}" IS NULL OR {table_prefix}"{col_names[14]}" = '' THEN FALSE
+                        WHEN CAST({table_prefix}"{col_names[14]}" AS TEXT) ~ '^[0-9]+\\.?[0-9]*$' THEN CAST(CAST({table_prefix}"{col_names[14]}" AS FLOAT) AS INTEGER) <= %s
                         ELSE FALSE
                     END'''
                     params.append(build_year_max)
@@ -2504,22 +2682,20 @@ def api_search():
         cursor.close()
         conn.close()
 
-        # LH 정보 추가
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        add_lh_info_to_results(all_results, cursor)
-        cursor.close()
-        conn.close()
+        # LH 정보 추가 (LH 필터가 아닐 때만)
+        # LH 필터 활성화 시에는 JOIN 쿼리에서 이미 LH 정보가 포함되어 있음
+        if not lh_only:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            add_lh_info_to_results(all_results, cursor)
+            cursor.close()
+            conn.close()
 
-        print(f"[DEBUG api_search] LH 필터링 전: 총 {len(all_results)}건, lh_only={lh_only}", flush=True)
+        print(f"[DEBUG api_search] 총 {len(all_results)}건, lh_only={lh_only}", flush=True)
 
-        # LH 전세임대만 필터링 (페이지네이션 없이 전체 반환)
+        # LH 필터링 시에는 이미 LH 매칭된 결과만 조회되었으므로 추가 필터링 불필요
+        # has_more 판단
         if lh_only:
-            # LH 필터링
-            before_count = len(all_results)
-            all_results = [r for r in all_results if r.get('is_lh', False)]
-            print(f"[DEBUG api_search] LH 필터링 실행: {before_count}건 -> {len(all_results)}건 (전체 반환)", flush=True)
-
             # LH 매칭 결과는 적으므로 페이지네이션 없이 모두 반환
             has_more = False
         else:
