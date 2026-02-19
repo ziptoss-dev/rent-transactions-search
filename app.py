@@ -3401,7 +3401,7 @@ def get_owner_info():
         if is_production:
             # 배포 환경: 프로덕션 API 키와 도메인 사용
             api_key = os.getenv('VWORLD_API_KEY_PROD')
-            domain_param = 'https://rent-transactions.ziptoss.com'
+            domain_param = 'http://127.0.0.1'
         else:
             # 로컬 환경: 로컬 API 키와 localhost 사용
             api_key = os.getenv('VWORLD_API_KEY_LOCAL')
